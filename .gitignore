@@ -1,0 +1,14 @@
+research.md*
+
+.env
+.env.*
+!.env.example
+
+node_modules/
+.turbo/
+dist/
+**/dist/
+
+dump.rdb
+.DS_Store
+*.bak

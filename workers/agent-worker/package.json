@@ -1,0 +1,40 @@
+{
+  "name": "@voice-agent/agent-worker",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts dev",
+    "start": "node dist/index.js start",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.4.3",
+    "@livekit/agents-plugin-cartesia": "^1.4.3",
+    "@livekit/agents-plugin-deepgram": "^1.4.3",
+    "@livekit/agents-plugin-openai": "^1.4.3",
+    "@livekit/agents-plugin-silero": "^1.4.3",
+    "@temporalio/client": "^1.9.0",
+    "@voice-agent/db-client": "workspace:*",
+    "@voice-agent/eou-detector": "workspace:*",
+    "@voice-agent/llm-client": "workspace:*",
+    "@voice-agent/observability": "workspace:*",
+    "@voice-agent/pii-redactor": "workspace:*",
+    "@voice-agent/redis-client": "workspace:*",
+    "@voice-agent/session-state": "workspace:*",
+    "@voice-agent/shared-types": "workspace:*",
+    "@voice-agent/stt-client": "workspace:*",
+    "@voice-agent/tts-client": "workspace:*",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.3.2",
+    "livekit-server-sdk": "^2.1.4",
+    "openai": "^4.28.0",
+    "postgres": "^3.4.4",
+    "xstate": "^4.38.2",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@voice-agent/session-state",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "xstate": "^4.38.2",
+    "ioredis": "^5.3.2",
+    "@voice-agent/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

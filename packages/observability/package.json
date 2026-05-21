@@ -1,0 +1,23 @@
+{
+  "name": "@voice-agent/observability",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc -w"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.8.0",
+    "@opentelemetry/sdk-node": "^0.49.1",
+    "@opentelemetry/exporter-prometheus": "^0.49.1",
+    "@opentelemetry/sdk-metrics": "^1.22.0",
+    "@opentelemetry/sdk-trace-node": "^1.22.0",
+    "langfuse": "^3.8.0",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,77 @@
+apiVersion:apps/v1
+kind: Deployment
+metadata:
+  name: agent-worker
+  namespace: voice-platform
+  labels:
+    app: agent-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: agent-worker
+  template:
+    metadata:
+      labels:
+        app: agent-worker
+    spec:
+      containers:
+        - name: agent-worker
+          image: gcr.io/voice-booking-platform/agent-worker:latest
+          imagePullPolicy: Always
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - "sh"
+                  - "-c"
+                  - "sleep 150"
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: database-url
+            - name: REDIS_URL
+              value: "redis://redis-master.shared.svc.cluster.local:6379"
+            - name: TEMPORAL_ADDRESS
+              value: "temporal-frontend.shared.svc.cluster.local:7233"
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cognitive-secrets
+                  key: openai-api-key
+            - name: DEEPGRAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cognitive-secrets
+                  key: deepgram-api-key
+            - name: CARTESIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: cognitive-secrets
+                  key: cartesia-api-key
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-key
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-secret
+            - name: LIVEKIT_HOST
+              value: "ws://livekit-sfu.shared.svc.cluster.local:7800"
+          ports:
+            - containerPort: 8080
+              name: metrics

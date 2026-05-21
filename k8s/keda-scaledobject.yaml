@@ -1,0 +1,31 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: agent-worker-scaler
+  namespace: voice-platform
+  labels:
+    app: agent-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agent-worker
+  minReplicaCount: 1
+  maxReplicaCount: 50
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 10
+              periodSeconds: 60
+  triggers:
+    - type: redis
+      metadata:
+        address: redis-master.shared.svc.cluster.local:6379
+        key: "active_sessions:counter"
+        value: "1"
+        enableTLS: "false"

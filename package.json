@@ -1,0 +1,22 @@
+{
+  "name": "voice-booking-platform",
+  "private": true,
+  "packageManager": "pnpm@10.16.1",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "type-check": "turbo run type-check",
+    "validate": "tsx scripts/validate-e2e.ts"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "tsx": "^4.22.3",
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
