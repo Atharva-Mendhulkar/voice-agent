@@ -6,7 +6,7 @@ import {
 } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
-import * as cartesia from '@livekit/agents-plugin-cartesia';
+
 import * as silero from '@livekit/agents-plugin-silero';
 import { PiiRedactor } from '@voice-agent/pii-redactor';
 import * as z from 'zod';
@@ -33,8 +33,8 @@ export default defineAgent({
     const db = (global as any).db;
     const temporal = (global as any).temporal;
 
-    let sysPrompt = 'You are a helpful scheduling assistant. Keep your responses short.';
-    let voiceId = process.env.CARTESIA_VOICE_ID || 'a0e99841-438c-4a64-b679-ae501e7d6091';
+    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name (along with date and time). Do not ask for their email address. Keep your responses short and conversational.';
+
     
     if (db) {
       try {
@@ -42,7 +42,7 @@ export default defineAgent({
         if (row) {
           const config = typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
           if (config?.systemPrompt) sysPrompt = config.systemPrompt;
-          if (config?.voiceId) voiceId = config.voiceId;
+
         }
       } catch (e) {
         console.warn('Could not fetch tenant config:', e);
@@ -55,7 +55,7 @@ export default defineAgent({
         parameters: z.object({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
-          calendarId: z.string().describe('The calendar ID to check.'),
+          calendarId: z.string().optional().describe('The calendar ID. Optional, defaults to primary.'),
         }),
         execute: async (args: any) => {
           if (!temporal) return 'Temporal not connected';
@@ -70,7 +70,7 @@ export default defineAgent({
                   tenantId,
                   date: args.date,
                   time: args.time,
-                  calendarId: args.calendarId,
+                  calendarId: args.calendarId || 'primary',
                 },
               ],
             });
@@ -88,9 +88,9 @@ export default defineAgent({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
           durationMinutes: z.number().default(30).describe('Duration in minutes. Default is 30.'),
-          attendeeEmail: z.string().describe('Attendee email address.'),
+          attendeeEmail: z.string().optional().describe('Attendee email address. Optional, use a dummy if not provided.'),
           attendeeName: z.string().describe('Attendee name.'),
-          calendarId: z.string().describe('The calendar ID to book onto.'),
+          calendarId: z.string().optional().describe('The calendar ID. Optional, defaults to primary.'),
           timezone: z.string().optional().describe('Timezone, default UTC'),
         }),
         execute: async (args: any) => {
@@ -109,9 +109,9 @@ export default defineAgent({
                     date: args.date,
                     time: args.time,
                     durationMinutes: args.durationMinutes || 30,
-                    attendeeEmail: args.attendeeEmail,
+                    attendeeEmail: args.attendeeEmail || 'no-reply@voicebooking.com',
                     attendeeName: args.attendeeName,
-                    calendarId: args.calendarId,
+                    calendarId: args.calendarId || 'primary',
                     timezone: args.timezone || 'UTC',
                   },
                 },
@@ -160,12 +160,14 @@ export default defineAgent({
       tools,
     });
 
-    const vad = await silero.VAD.load();
+    const vad = await silero.VAD.load({
+      minSilenceDuration: 300, // Aggressive endpointing (default is often 500-700ms)
+    });
 
     const session = new voice.AgentSession({
       stt: new deepgram.STT(),
       llm: new openai.LLM(),
-      tts: new openai.TTS(), // Fallback to OpenAI TTS because Cartesia API key returned 402 Payment Required
+      tts: new openai.TTS({ model: 'tts-1', voice: 'alloy' }),
       vad,
     });
 
