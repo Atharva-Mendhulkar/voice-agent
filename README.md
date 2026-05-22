@@ -2,27 +2,72 @@
 
 A high-performance, real-time voice reservation and agent platform. This monorepo includes shared packages, client applications, backend gateways, and temporal orchestrators.
 
-## Project Structure
+## Project Structure and Components
 
-- `apps/`
-  - `api-gateway/`: Fastify API serving LiveKit token minting, session controls, and booking cancellations.
-  - `frontend/`: Next.js client interface with real-time audio visualization, live transcripts, and reservation controls.
-- `packages/`
-  - `shared-types/`: Shared event structures and types.
-  - `redis-client/`: Redis locking, pub/sub, config cache, and active session counting.
-  - `db-client/`: PostgreSQL partitioning, migrations, and Row-Level Security rules.
-  - `pii-redactor/`: High-performance PII redaction layer.
-  - `session-state/`: Voice agent session state machine.
-  - `stt-client/`: Deepgram streaming API wrapper with automatic reconnect policies.
-  - `tts-client/`: Cartesia streaming API wrapper with automatic reconnect policies.
-  - `eou-detector/`: Semantic end-of-utterance check.
-  - `llm-client/`: OpenAI streaming LLM wrapper with support for tool calls.
-  - `observability/`: OpenTelemetry metrics and tracing integration, alongside Langfuse LLM logging.
-- `workers/`
-  - `agent-worker/`: Audio processing worker coordinating STT, LLM, TTS, and state transitions.
-  - `temporal-worker/`: Temporal orchestrator executing BookingWorkflow, PG activities, and Saga rollbacks.
-- `k8s/`: Kubernetes deployment manifests, including preStop hooks and KEDA scaling configurations.
-- `load-tests/`: k6 load tests and chaos simulation scripts.
+This monorepo is organized into three main areas: **Apps** (user-facing and API gateways), **Workers** (background processing and AI execution), and **Packages** (shared business logic and infrastructure clients).
+
+### Apps (`apps/`)
+These are the entry points to the system that accept inbound connections from users.
+- **`apps/api-gateway/`**: A Fastify REST API. It handles HTTP requests from the frontend, mints secure access tokens for LiveKit sessions, fetches session history, and dispatches cancellation requests to Temporal.
+- **`apps/frontend/`**: A Next.js web application. This provides the user interface for end-users to interact with the voice agent. It uses the `@livekit/components-react` library for real-time audio visualization, live transcripts, and WebRTC streaming.
+
+### Workers (`workers/`)
+Workers operate in the background and execute the core logic of the system.
+- **`workers/agent-worker/`**: The brain of the voice AI. Built on the `@livekit/agents` framework, this Node.js worker connects to LiveKit rooms, processes incoming audio using a Voice Activity Detector (Silero VAD), converts speech to text (Deepgram STT), routes it to an LLM (OpenAI) for decision making/tool execution, and synthesizes the response back to audio (OpenAI/Cartesia TTS).
+- **`workers/temporal-worker/`**: The orchestration layer. It runs Temporal workflows and activities to safely execute distributed transactions like checking Google Calendar availability, locking slots via Redis, writing booking records to PostgreSQL, and sending confirmation emails.
+
+### Packages (`packages/`)
+Internal shared libraries used by the Apps and Workers.
+- **`packages/shared-types/`**: TypeScript interfaces and Zod schemas shared across the stack.
+- **`packages/redis-client/`**: Redis utilities for distributed locking, pub/sub communication, config caching, and tracking active voice sessions.
+- **`packages/db-client/`**: PostgreSQL client with utilities for Row-Level Security (RLS) and database migrations.
+- **`packages/pii-redactor/`**: A utility layer for stripping sensitive Personally Identifiable Information from logs and transcripts before they are persisted.
+- **`packages/session-state/`**: State machine logic for managing the lifecycle of a voice agent session.
+- **`packages/stt-client/`, `tts-client/`, `llm-client/`**: Legacy streaming API wrappers (largely superseded by the official LiveKit Agents plugins, but maintained for backwards compatibility and custom observability integrations).
+- **`packages/eou-detector/`**: Semantic end-of-utterance checking utilities.
+- **`packages/observability/`**: OpenTelemetry metrics, tracing integration, and custom logging.
+
+### Infrastructure (`k8s/`, `load-tests/`)
+- **`k8s/`**: Kubernetes deployment manifests, including KEDA configurations for autoscaling based on queue length, and preStop hooks for graceful shutdown.
+- **`load-tests/`**: k6 scripts designed to simulate high traffic against the API gateway and verify system resilience.
+
+## Architecture Workflow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend (Next.js)
+    participant API as API Gateway (Fastify)
+    participant LK as LiveKit Cloud
+    participant AW as Agent Worker (Node.js)
+    participant TW as Temporal Worker
+
+    U->>F: Opens App & Clicks "Connect"
+    F->>API: POST /api/sessions (Request Token)
+    API-->>F: Returns JWT Token
+    F->>LK: Connects via WebRTC
+    LK->>AW: Dispatches job to Agent Worker
+    
+    note over U,AW: Real-time Audio Streaming begins
+    
+    U->>LK: Speaks (Audio Stream)
+    LK->>AW: Forwards Audio
+    AW->>AW: VAD (Silero) detects End of Speech
+    AW->>AW: STT (Deepgram) transcribes Audio
+    AW->>AW: LLM (OpenAI) processes transcript
+    
+    alt Needs Booking?
+        AW->>TW: Triggers BookingWorkflow
+        TW->>TW: Holds slot in Redis
+        TW->>TW: Saves to PostgreSQL
+        TW->>TW: Syncs to Google Calendar
+        TW-->>AW: Returns Success/Failure
+    end
+
+    AW->>AW: TTS (OpenAI) synthesizes response
+    AW->>LK: Sends Audio Stream back
+    LK->>U: Plays Audio Response
+```
 
 ## Installation
 
