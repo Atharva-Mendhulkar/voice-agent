@@ -35,7 +35,8 @@ Internal shared libraries used by the Apps and Workers.
 
 ```mermaid
 sequenceDiagram
-    participant U as User
+    participant T as Twilio/PSTN
+    participant U as Web User
     participant F as Frontend (Next.js)
     participant API as API Gateway (Fastify)
     participant LK as LiveKit Cloud
@@ -46,6 +47,9 @@ sequenceDiagram
     F->>API: POST /api/sessions (Request Token)
     API-->>F: Returns JWT Token
     F->>LK: Connects via WebRTC
+    
+    T->>LK: SIP INVITE (Phone Call)
+    
     LK->>AW: Dispatches job to Agent Worker
     
     note over U,AW: Real-time Audio Streaming begins
@@ -66,8 +70,25 @@ sequenceDiagram
 
     AW->>AW: TTS (OpenAI) synthesizes response
     AW->>LK: Sends Audio Stream back
-    LK->>U: Plays Audio Response
+    LK->>U: Plays Web Audio
+    LK->>T: Plays Phone Audio
 ```
+
+## Project Status Checklist
+
+### ✅ Completed
+- [x] **Monorepo Setup:** TurboRepo configured with isolated packages (DB, Redis, Types, Observability).
+- [x] **LiveKit Voice Agent:** Node.js agent using `@livekit/agents` framework.
+- [x] **Conversational Pipeline:** Deepgram STT -> OpenAI LLM -> OpenAI TTS.
+- [x] **Temporal Orchestration:** Saga-based `BookingWorkflow` execution for safety.
+- [x] **Google Calendar Sync:** Full bi-directional checking and booking via Service Accounts.
+- [x] **Latency Tuning:** Silero VAD min_silence_duration reduced to 300ms.
+- [x] **Telephony Integration:** Twilio SIP Inbound Trunk & Dispatch Rules created in LiveKit.
+
+### 🚧 Pending / Next Steps
+- [ ] **Observability (Langfuse):** Inject Langfuse tracing into the LLM completion streams for analytics.
+- [ ] **Post-Call Data Pipeline:** Trigger `PostCallWorkflow` to save full transcripts to PostgreSQL on session end.
+- [ ] **Cartesia TTS Re-enable:** Switch back from OpenAI TTS to Cartesia Sonic once billing is resolved.
 
 ## Installation
 
