@@ -5,6 +5,7 @@ const {
   checkCalendarAvailability,
   holdCalendarSlot,
   releaseCalendarHold,
+  releaseSlotInRedis,
   createBookingRecord,
   cancelBookingRecord,
   deleteBookingRecord,
@@ -113,6 +114,7 @@ export async function BookingWorkflow(params: {
       await deleteBookingRecord({ tenantId, bookingId });
     }
     await releaseCalendarHold({ calendarId, date, time });
+    await releaseSlotInRedis({ slotId: `${calendarId}:${date}:${time}`, tenantId, requestId: params.requestId });
 
     const causeMessage = err && typeof err === 'object' && 'cause' in err && err.cause && typeof err.cause === 'object' && 'message' in err.cause ? (err.cause.message as string) : undefined;
     await notifyBroker({

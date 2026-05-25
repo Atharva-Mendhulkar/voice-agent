@@ -1,5 +1,7 @@
 import { createMachine } from 'xstate';
 
+const SESSION_TIMEOUT_MS = 300000; // 5 minutes
+
 export interface SessionContext {
   roomId: string;
   tenantId: string;
@@ -41,6 +43,9 @@ export const sessionMachine = createMachine<SessionContext, SessionMachineEvent>
           CRITICAL_ERROR: 'DEGRADED_MODE',
           SESSION_END: 'DISCONNECTED',
         },
+        after: {
+          [SESSION_TIMEOUT_MS]: 'DISCONNECTED',
+        }
       },
       LISTENING: {
         on: {
@@ -50,6 +55,9 @@ export const sessionMachine = createMachine<SessionContext, SessionMachineEvent>
           CRITICAL_ERROR: 'DEGRADED_MODE',
           SESSION_END: 'DISCONNECTED',
         },
+        after: {
+          [SESSION_TIMEOUT_MS]: 'DISCONNECTED',
+        }
       },
       THINKING: {
         on: {
@@ -59,6 +67,9 @@ export const sessionMachine = createMachine<SessionContext, SessionMachineEvent>
           CRITICAL_ERROR: 'DEGRADED_MODE',
           SESSION_END: 'DISCONNECTED',
         },
+        after: {
+          [SESSION_TIMEOUT_MS]: 'DISCONNECTED',
+        }
       },
       SPEAKING: {
         on: {
@@ -86,6 +97,9 @@ export const sessionMachine = createMachine<SessionContext, SessionMachineEvent>
           CRITICAL_ERROR: 'DEGRADED_MODE',
           SESSION_END: 'DISCONNECTED',
         },
+        after: {
+          [SESSION_TIMEOUT_MS]: 'DISCONNECTED',
+        }
       },
       TOOL_EXECUTING: {
         on: {
@@ -96,6 +110,9 @@ export const sessionMachine = createMachine<SessionContext, SessionMachineEvent>
           CRITICAL_ERROR: 'DEGRADED_MODE',
           SESSION_END: 'DISCONNECTED',
         },
+        after: {
+          [SESSION_TIMEOUT_MS]: 'DISCONNECTED',
+        }
       },
       TOOL_CANCELLED: {
         entry: ['cancelToolExecution'],

@@ -13,7 +13,7 @@ export class BookingLockManager {
     requestId: string
   ): Promise<boolean> {
     const key = `lock:booking:${slotId}:${tenantId}`;
-    const res = await this.client.set(key, requestId, 'EX', 60, 'NX');
+    const res = await this.client.set(key, requestId, 'EX', 600, 'NX');
     return res === 'OK';
   }
 

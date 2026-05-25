@@ -9,6 +9,7 @@ import * as deepgram from '@livekit/agents-plugin-deepgram';
 
 import * as silero from '@livekit/agents-plugin-silero';
 import { PiiRedactor } from '@voice-agent/pii-redactor';
+import { getLangfuse, logger } from '@voice-agent/observability';
 import * as z from 'zod';
 
 export default defineAgent({
@@ -164,9 +165,52 @@ export default defineAgent({
       minSilenceDuration: 300, // Aggressive endpointing (default is often 500-700ms)
     });
 
+    const baseLlm = new openai.LLM();
+    const langfuse = getLangfuse();
+    const originalChat = baseLlm.chat.bind(baseLlm);
+    
+    baseLlm.chat = async function(ctxParam: any, optsParam?: any) {
+      let trace: any;
+      let span: any;
+      if (langfuse) {
+        trace = langfuse.trace({
+          name: 'agent-turn',
+          sessionId: ctx.room.name,
+        });
+        span = trace.span({
+          name: 'llm-completion',
+          input: ctxParam,
+        });
+      }
+      
+      // @ts-ignore
+      const stream = await originalChat(ctxParam, optsParam);
+      
+      return (async function* () {
+        let outputText = '';
+        try {
+          for await (const chunk of stream as any) {
+            if (chunk?.choices?.[0]?.delta?.content) {
+              outputText += chunk.choices[0].delta.content;
+            }
+            yield chunk;
+          }
+        } finally {
+          if (span) {
+            span.end({
+              output: outputText,
+            });
+          }
+          if (langfuse) {
+            await langfuse.flushAsync();
+          }
+        }
+      })();
+    } as any;
+
     const session = new voice.AgentSession({
       stt: new deepgram.STT(),
-      llm: new openai.LLM(),
+      llm: baseLlm,
       tts: new openai.TTS({ model: 'tts-1', voice: 'alloy' }),
       vad,
     });
@@ -178,6 +222,34 @@ export default defineAgent({
 
     await session.say('Hello, thank you for calling. How can I help you book your appointment today?', {
       allowInterruptions: true
+    });
+
+    ctx.room.on('disconnected', async () => {
+      logger.info({ roomId, tenantId }, 'Room disconnected, triggering PostCallWorkflow');
+      try {
+        const piiRedactor = new PiiRedactor();
+        const chatCtx: any = agent.chatCtx;
+        const messages = chatCtx?.messages || chatCtx?.getMessages?.() || [];
+        const transcript = messages.map((m: any) => ({
+          role: m.role,
+          text: piiRedactor.redact(typeof m.content === 'string' ? m.content : JSON.stringify(m.content)),
+          ts: Date.now()
+        }));
+
+        const reqId = Date.now().toString();
+        if (temporal) {
+          await temporal.workflow.start('PostCallWorkflow', {
+            taskQueue: 'booking-queue',
+            workflowId: `postcall-${roomId}-${reqId}`,
+            args: [{ roomId, tenantId, transcript }],
+          });
+          logger.info({ roomId }, 'PostCallWorkflow triggered successfully');
+        } else {
+          logger.warn('Temporal not connected, could not start PostCallWorkflow');
+        }
+      } catch (err) {
+        logger.error({ err, roomId }, 'Failed to trigger PostCallWorkflow');
+      }
     });
   },
 });

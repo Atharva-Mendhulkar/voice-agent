@@ -1,5 +1,6 @@
 import postgres from 'postgres';
 import { Redis } from 'ioredis';
+import { BookingLockManager } from '@voice-agent/redis-client';
 import crypto from 'crypto';
 import { TenantScopedDb } from '@voice-agent/db-client';
 import { WorkflowResultBroker } from '@voice-agent/redis-client';
@@ -122,6 +123,16 @@ export function createActivities(context: ActivityContext) {
       const { calendarId, date, time } = params;
       const key = `calendar:hold:${calendarId}:${date}:${time}`;
       await context.redis.del(key);
+      return { success: true };
+    },
+
+    async releaseSlotInRedis(params: {
+      slotId: string;
+      tenantId: string;
+      requestId: string;
+    }): Promise<{ success: boolean }> {
+      const lockManager = new BookingLockManager(context.redis);
+      await lockManager.releaseBookingLock(params.slotId, params.tenantId, params.requestId);
       return { success: true };
     },
 
