@@ -169,7 +169,7 @@ export default defineAgent({
     const langfuse = getLangfuse();
     const originalChat = baseLlm.chat.bind(baseLlm);
     
-    baseLlm.chat = async function(ctxParam: any, optsParam?: any) {
+    (baseLlm as any).chat = function(ctxParam: any, optsParam?: any) {
       let trace: any;
       let span: any;
       if (langfuse) {
@@ -184,14 +184,17 @@ export default defineAgent({
       }
       
       // @ts-ignore
-      const stream = await originalChat(ctxParam, optsParam);
+      const stream = originalChat(ctxParam, optsParam);
       
-      return (async function* () {
+      const originalIterator = stream[Symbol.asyncIterator].bind(stream);
+      stream[Symbol.asyncIterator] = (async function* () {
         let outputText = '';
         try {
-          for await (const chunk of stream as any) {
-            if (chunk?.choices?.[0]?.delta?.content) {
-              outputText += chunk.choices[0].delta.content;
+          for await (const chunk of originalIterator()) {
+            if ((chunk as any)?.content) {
+              outputText += (chunk as any).content;
+            } else if ((chunk as any)?.choices?.[0]?.delta?.content) {
+              outputText += (chunk as any).choices[0].delta.content;
             }
             yield chunk;
           }
@@ -205,8 +208,10 @@ export default defineAgent({
             await langfuse.flushAsync();
           }
         }
-      })();
-    } as any;
+      }) as any;
+      
+      return stream;
+    };
 
     const session = new voice.AgentSession({
       stt: new deepgram.STT(),
