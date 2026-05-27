@@ -12,13 +12,17 @@ import { PiiRedactor } from '@voice-agent/pii-redactor';
 import { getLangfuse, logger } from '@voice-agent/observability';
 import * as z from 'zod';
 
+import { createRedisClient } from '@voice-agent/redis-client';
+import { createDbClient } from '@voice-agent/db-client';
+import { Connection, Client as TemporalClient } from '@temporalio/client';
+
 export default defineAgent({
   entry: async (ctx: JobContext) => {
     await ctx.connect();
 
     const roomId = ctx.room.name;
     const metadataStr = ctx.room.metadata;
-    let tenantId = 'default';
+    let tenantId = 'd3b07384-d113-4ec3-a558-e04e662e3f62'; // Default to Acme Hotels UUID instead of 'default' string
     if (metadataStr) {
       try {
         const metadata = JSON.parse(metadataStr);
@@ -30,9 +34,30 @@ export default defineAgent({
       }
     }
 
-    const redis = (global as any).redis;
-    const db = (global as any).db;
-    const temporal = (global as any).temporal;
+    let redis = (global as any).redis;
+    let db = (global as any).db;
+    let temporal = (global as any).temporal;
+
+    if (!temporal) {
+      const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+      const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/voice_booking';
+      const temporalAddress = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
+      const temporalNamespace = process.env.TEMPORAL_NAMESPACE || 'default';
+
+      redis = createRedisClient(redisUrl);
+      db = createDbClient(dbUrl);
+      
+      const temporalConnection = await Connection.connect({ address: temporalAddress });
+      temporal = new TemporalClient({
+        connection: temporalConnection,
+        namespace: temporalNamespace,
+      });
+
+      // Cache them for future runs in this thread
+      (global as any).redis = redis;
+      (global as any).db = db;
+      (global as any).temporal = temporal;
+    }
 
     let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name (along with date and time). Do not ask for their email address. Keep your responses short and conversational.';
 
@@ -56,7 +81,7 @@ export default defineAgent({
         parameters: z.object({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
-          calendarId: z.string().optional().describe('The calendar ID. Optional, defaults to primary.'),
+          calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
         }),
         execute: async (args: any) => {
           if (!temporal) return 'Temporal not connected';
@@ -91,7 +116,7 @@ export default defineAgent({
           durationMinutes: z.number().default(30).describe('Duration in minutes. Default is 30.'),
           attendeeEmail: z.string().optional().describe('Attendee email address. Optional, use a dummy if not provided.'),
           attendeeName: z.string().describe('Attendee name.'),
-          calendarId: z.string().optional().describe('The calendar ID. Optional, defaults to primary.'),
+          calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
           timezone: z.string().optional().describe('Timezone, default UTC'),
         }),
         execute: async (args: any) => {

@@ -29,13 +29,23 @@ function getGoogleCalendar() {
     }
   }
 
-  // Strip literal surrounding double quotes if present (common when loading from .env)
-  if (key.startsWith('"') && key.endsWith('"')) {
-    key = key.slice(1, -1);
-  }
+  // Strip literal surrounding double quotes if present
+  key = key.replace(/^["']|["']$/g, '');
 
   // Replace escaped newlines if any
   key = key.replace(/\\n/g, '\n');
+
+  // Fix common copy-paste errors where newlines are lost and replaced by spaces
+  if (key.includes('BEGIN PRIVATE KEY')) {
+    // Extract the base64 body
+    const bodyMatch = key.replace(/-----BEGIN PRIVATE KEY-----/g, '')
+                         .replace(/-----END PRIVATE KEY-----/g, '')
+                         .replace(/\s+/g, '');
+    
+    // Reconstruct the valid PEM format with 64-character lines
+    const lines = bodyMatch.match(/.{1,64}/g) || [];
+    key = `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----\n`;
+  }
 
   try {
     const auth = new google.auth.JWT({
