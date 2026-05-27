@@ -62,8 +62,13 @@ export default function Home() {
 
       // 2. Connect to LiveKit Room
       const room = new Room({
-        adaptiveStream: true,
-        dynacast: true,
+        // audio-only room optimizations
+        videoCaptureDefaults: undefined,
+        audioCaptureDefaults: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
       });
 
       roomRef.current = room;

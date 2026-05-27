@@ -32,7 +32,7 @@ export async function BookingWorkflow(params: {
     calendarId: string;
     timezone: string;
   };
-}): Promise<void> {
+}): Promise<{ bookingId?: string; confirmationCode?: string; error?: string }> {
   const { roomId, tenantId, appointment } = params;
   const { date, time, calendarId } = appointment;
 
@@ -53,7 +53,7 @@ export async function BookingWorkflow(params: {
         proposedSlot: avail.proposedSlot || '',
       },
     });
-    return;
+    return { error: `Slot unavailable. Proposed slot: ${avail.proposedSlot}` };
   }
 
   const held = await holdCalendarSlot({ calendarId, date, time });
@@ -66,7 +66,7 @@ export async function BookingWorkflow(params: {
         reason: 'slot_held_by_other',
       },
     });
-    return;
+    return { error: 'Slot held by someone else. Please try another time.' };
   }
 
   let bookingId: string | null = null;
@@ -108,6 +108,8 @@ export async function BookingWorkflow(params: {
         },
       },
     });
+
+    return { bookingId, confirmationCode };
   } catch (err) {
     console.error('Booking Saga failed, executing compensation steps:', err);
     if (bookingId) {
@@ -125,6 +127,8 @@ export async function BookingWorkflow(params: {
         reason: causeMessage || (err as Error).message || 'saga_execution_failed',
       },
     });
+
+    return { error: causeMessage || (err as Error).message || 'saga_execution_failed' };
   }
 }
 
@@ -132,7 +136,7 @@ export async function CancellationWorkflow(params: {
   roomId: string;
   tenantId: string;
   confirmationCode: string;
-}): Promise<void> {
+}): Promise<{ success: boolean; attendeeEmail?: string; attendeeName?: string; startTime?: string }> {
   const { roomId, tenantId, confirmationCode } = params;
   const cancelRes = await cancelBookingRecord({ tenantId, confirmationCode });
 
@@ -153,6 +157,8 @@ export async function CancellationWorkflow(params: {
       confirmationCode,
     },
   });
+
+  return cancelRes;
 }
 
 export async function CheckAvailabilityWorkflow(params: {
@@ -161,7 +167,7 @@ export async function CheckAvailabilityWorkflow(params: {
   date: string;
   time: string;
   calendarId: string;
-}): Promise<void> {
+}): Promise<{ available: boolean; proposedSlot?: string }> {
   const { roomId, tenantId, date, time, calendarId } = params;
   const avail = await checkCalendarAvailability({
     tenantId,
@@ -179,6 +185,8 @@ export async function CheckAvailabilityWorkflow(params: {
       proposedSlot: avail.proposedSlot || '',
     },
   });
+
+  return avail;
 }
 
 export async function PostCallWorkflow(params: {

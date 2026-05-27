@@ -29,6 +29,11 @@ function getGoogleCalendar() {
     }
   }
 
+  // Strip literal surrounding double quotes if present (common when loading from .env)
+  if (key.startsWith('"') && key.endsWith('"')) {
+    key = key.slice(1, -1);
+  }
+
   // Replace escaped newlines if any
   key = key.replace(/\\n/g, '\n');
 

@@ -115,6 +115,24 @@ Configure the following environment variables:
 - `CARTESIA_API_KEY`: API key for Cartesia text-to-speech.
 - `LIVEKIT_API_KEY` & `LIVEKIT_API_SECRET`: Credentials for the LiveKit server.
 
+### Google Calendar Setup
+To enable Google Calendar syncing, you must configure a Google Service Account:
+1. Create a Service Account in Google Cloud Console.
+2. Share the target calendar with the Service Account email.
+3. Export the JSON key.
+4. Set `GOOGLE_SERVICE_ACCOUNT_EMAIL` to the service account email.
+5. Set `GOOGLE_PRIVATE_KEY` to the private key. If using a `.env` file, you can wrap the multiline key in double quotes (the system will automatically parse out the quotes and newlines).
+
+### Twilio SIP Setup
+The voice agent supports inbound phone calls via Twilio SIP trunking.
+1. Run `npx ts-node scripts/setup-sip.ts` to provision a SIP Inbound Trunk in LiveKit.
+2. The script will output a LiveKit SIP URI.
+3. In Twilio Console, go to Voice > Manage > SIP Domains.
+4. Create a new SIP Domain (e.g., `voice-agent.sip.twilio.com`).
+5. Set the Twilio Origination URI to the LiveKit SIP URI.
+6. Route your Twilio Phone Number to the new SIP domain.
+7. To handle Twilio webhooks (optional), set `TWILIO_AUTH_TOKEN` in your environment variables. The API gateway listens at `/api/v1/webhooks/twilio` for status callbacks.
+
 ## Building the Workspace
 
 Compile all typescript packages and applications:

@@ -185,32 +185,38 @@ export default defineAgent({
       
       // @ts-ignore
       const stream = originalChat(ctxParam, optsParam);
-      
-      const originalIterator = stream[Symbol.asyncIterator].bind(stream);
-      stream[Symbol.asyncIterator] = (async function* () {
-        let outputText = '';
-        try {
-          for await (const chunk of originalIterator()) {
-            if ((chunk as any)?.content) {
-              outputText += (chunk as any).content;
-            } else if ((chunk as any)?.choices?.[0]?.delta?.content) {
-              outputText += (chunk as any).choices[0].delta.content;
-            }
-            yield chunk;
+      let outputText = '';
+
+      const proxyStream = new Proxy(stream, {
+        get(target, prop, receiver) {
+          if (prop === Symbol.asyncIterator) {
+            return async function* () {
+              try {
+                for await (const chunk of target[Symbol.asyncIterator]()) {
+                  if ((chunk as any)?.content) {
+                    outputText += (chunk as any).content;
+                  } else if ((chunk as any)?.choices?.[0]?.delta?.content) {
+                    outputText += (chunk as any).choices[0].delta.content;
+                  }
+                  yield chunk;
+                }
+              } finally {
+                if (span) {
+                  span.end({
+                    output: outputText,
+                  });
+                }
+                if (langfuse) {
+                  langfuse.flushAsync().catch((err) => console.error('Langfuse flush error:', err));
+                }
+              }
+            };
           }
-        } finally {
-          if (span) {
-            span.end({
-              output: outputText,
-            });
-          }
-          if (langfuse) {
-            await langfuse.flushAsync();
-          }
+          return Reflect.get(target, prop, receiver);
         }
-      }) as any;
+      });
       
-      return stream;
+      return proxyStream;
     };
 
     const session = new voice.AgentSession({
