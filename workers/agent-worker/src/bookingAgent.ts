@@ -61,7 +61,6 @@ export default defineAgent({
 
     let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name (along with date and time). Do not ask for their email address. Keep your responses short and conversational.';
 
-    
     if (db) {
       try {
         const [row] = await db`SELECT * FROM tenants WHERE id = ${tenantId}`;
@@ -74,6 +73,9 @@ export default defineAgent({
         console.warn('Could not fetch tenant config:', e);
       }
     }
+
+    // Inject current date context so the agent knows what year it is
+    sysPrompt += `\n\nCRITICAL CONTEXT: The current date and time is ${new Date().toString()}. Always use this to resolve relative dates like "tomorrow" or "next week".`;
 
     const tools = {
       checkAvailability: llm.tool({
@@ -114,10 +116,10 @@ export default defineAgent({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
           durationMinutes: z.number().default(30).describe('Duration in minutes. Default is 30.'),
-          attendeeEmail: z.string().optional().describe('Attendee email address. Optional, use a dummy if not provided.'),
+          attendeeEmail: z.string().nullable().optional().describe('Attendee email address. Optional, use a dummy if not provided.'),
           attendeeName: z.string().describe('Attendee name.'),
           calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
-          timezone: z.string().optional().describe('Timezone, default UTC'),
+          timezone: z.string().nullable().optional().describe('Timezone, default UTC'),
         }),
         execute: async (args: any) => {
           if (!temporal) return 'Temporal not connected';

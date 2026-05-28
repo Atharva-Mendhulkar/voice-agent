@@ -189,7 +189,6 @@ export function createActivities(context: ActivityContext) {
               description: `Confirmed reservation via SHIELD Voice Coordinator.`,
               start: { dateTime: startTime.toISOString(), timeZone: timezone },
               end: { dateTime: endTime.toISOString(), timeZone: timezone },
-              attendees: [{ email: attendeeEmail, displayName: attendeeName }],
             },
           });
           if (eventRes.data.id) {
