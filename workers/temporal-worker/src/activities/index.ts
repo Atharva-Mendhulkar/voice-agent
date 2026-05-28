@@ -6,6 +6,7 @@ import { TenantScopedDb } from '@voice-agent/db-client';
 import { WorkflowResultBroker } from '@voice-agent/redis-client';
 import { google } from 'googleapis';
 import { ApplicationFailure } from '@temporalio/activity';
+import twilio from 'twilio';
 
 export interface ActivityContext {
   db: postgres.Sql;
@@ -64,6 +65,11 @@ export function createActivities(context: ActivityContext) {
   const scopedDb = new TenantScopedDb(context.db);
   const broker = new WorkflowResultBroker(context.redis, context.redis.duplicate());
   const googleCalendar = getGoogleCalendar();
+
+  const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+  const twilioWhatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+  const twilioClient = twilioAccountSid && twilioAuthToken ? twilio(twilioAccountSid, twilioAuthToken) : null;
 
   return {
     async checkCalendarAvailability(params: {
@@ -155,6 +161,7 @@ export function createActivities(context: ActivityContext) {
       tenantId: string;
       calendarId: string;
       attendeeEmail: string;
+      attendeePhone?: string | null;
       attendeeName: string;
       date: string;
       time: string;
@@ -166,6 +173,7 @@ export function createActivities(context: ActivityContext) {
         tenantId,
         calendarId,
         attendeeEmail,
+        attendeePhone,
         attendeeName,
         date,
         time,
@@ -207,6 +215,7 @@ export function createActivities(context: ActivityContext) {
             calendar_event_id,
             calendar_id,
             attendee_email,
+            attendee_phone,
             attendee_name,
             start_time,
             end_time,
@@ -220,6 +229,7 @@ export function createActivities(context: ActivityContext) {
             ${calendarEventId},
             ${calendarId},
             ${attendeeEmail},
+            ${attendeePhone || null},
             ${attendeeName},
             ${startTime},
             ${endTime},
@@ -417,6 +427,35 @@ export function createActivities(context: ActivityContext) {
           )
         `;
       });
+
+      return { success: true };
+    },
+
+    async sendWhatsAppConfirmation(params: {
+      to: string;
+      name: string;
+      startTime: string;
+      confirmationCode: string;
+    }): Promise<{ success: boolean }> {
+      const { to, name, startTime, confirmationCode } = params;
+      if (!twilioClient) {
+        console.warn('[SIMULATED WHATSAPP] Twilio client not configured. Would send:');
+        console.warn(`To: whatsapp:${to}`);
+        console.warn(`Body: Hi ${name}, your appointment has been confirmed for ${startTime}. Confirmation Code: ${confirmationCode}. Thank you!`);
+        return { success: true };
+      }
+
+      try {
+        const toFormat = to.startsWith('+') ? to : `+${to}`;
+        await twilioClient.messages.create({
+          from: twilioWhatsappNumber,
+          to: `whatsapp:${toFormat}`,
+          body: `Hi ${name},\n\nYour appointment has been confirmed for ${startTime}.\nConfirmation Code: ${confirmationCode}\n\nThank you!`,
+        });
+        console.log(`WhatsApp confirmation sent to ${toFormat}`);
+      } catch (err) {
+        console.error('Failed to send WhatsApp message via Twilio:', err);
+      }
 
       return { success: true };
     },

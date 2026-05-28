@@ -59,7 +59,7 @@ export default defineAgent({
       (global as any).temporal = temporal;
     }
 
-    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name (along with date and time). Do not ask for their email address. Keep your responses short and conversational.';
+    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name and phone number (to send a WhatsApp confirmation), along with the date and time. Do not ask for their email address. Keep your responses short and conversational.';
 
     if (db) {
       try {
@@ -98,7 +98,7 @@ export default defineAgent({
                   tenantId,
                   date: args.date,
                   time: args.time,
-                  calendarId: args.calendarId || 'primary',
+                  calendarId: args.calendarId || process.env.TARGET_CALENDAR_ID || 'primary',
                 },
               ],
             });
@@ -117,6 +117,7 @@ export default defineAgent({
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
           durationMinutes: z.number().default(30).describe('Duration in minutes. Default is 30.'),
           attendeeEmail: z.string().nullable().optional().describe('Attendee email address. Optional, use a dummy if not provided.'),
+          attendeePhone: z.string().nullable().optional().describe('Attendee phone number in E.164 format. Optional but requested for WhatsApp confirmations.'),
           attendeeName: z.string().describe('Attendee name.'),
           calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
           timezone: z.string().nullable().optional().describe('Timezone, default UTC'),
@@ -138,8 +139,9 @@ export default defineAgent({
                     time: args.time,
                     durationMinutes: args.durationMinutes || 30,
                     attendeeEmail: args.attendeeEmail || 'no-reply@voicebooking.com',
+                    attendeePhone: args.attendeePhone || null,
                     attendeeName: args.attendeeName,
-                    calendarId: args.calendarId || 'primary',
+                    calendarId: args.calendarId || process.env.TARGET_CALENDAR_ID || 'primary',
                     timezone: args.timezone || 'UTC',
                   },
                 },

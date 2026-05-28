@@ -15,6 +15,7 @@ const {
   saveTranscriptAndEvents,
   sendConfirmationEmail,
   sendCancellationEmail,
+  sendWhatsAppConfirmation,
 } = proxyActivities<ReturnType<typeof activities.createActivities>>({
   startToCloseTimeout: '1 minute',
 });
@@ -28,6 +29,7 @@ export async function BookingWorkflow(params: {
     time: string;
     durationMinutes: number;
     attendeeEmail: string;
+    attendeePhone?: string | null;
     attendeeName: string;
     calendarId: string;
     timezone: string;
@@ -77,6 +79,7 @@ export async function BookingWorkflow(params: {
       tenantId,
       calendarId,
       attendeeEmail: appointment.attendeeEmail,
+      attendeePhone: appointment.attendeePhone,
       attendeeName: appointment.attendeeName,
       date,
       time,
@@ -90,12 +93,21 @@ export async function BookingWorkflow(params: {
 
     await confirmCalendarSlot({ calendarId, date, time });
 
-    await sendConfirmationEmail({
-      to: appointment.attendeeEmail,
-      name: appointment.attendeeName,
-      startTime: `${date}T${time}:00Z`,
-      confirmationCode,
-    });
+    if (appointment.attendeePhone) {
+      await sendWhatsAppConfirmation({
+        to: appointment.attendeePhone,
+        name: appointment.attendeeName,
+        startTime: `${date}T${time}:00Z`,
+        confirmationCode,
+      });
+    } else {
+      await sendConfirmationEmail({
+        to: appointment.attendeeEmail,
+        name: appointment.attendeeName,
+        startTime: `${date}T${time}:00Z`,
+        confirmationCode,
+      });
+    }
 
     await notifyBroker({
       roomId,

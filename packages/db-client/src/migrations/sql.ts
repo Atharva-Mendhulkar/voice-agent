@@ -187,3 +187,7 @@ CREATE POLICY tenant_isolation_embeddings ON memory_embeddings
   FOR ALL
   USING (tenant_id = NULLIF(current_setting('app.current_tenant_id', true), '')::uuid);
 `;
+
+export const MIGRATION_003_WHATSAPP = `
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS attendee_phone VARCHAR(255);
+`;

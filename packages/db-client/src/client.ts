@@ -1,5 +1,5 @@
 import postgres from 'postgres';
-import { MIGRATION_001_INIT, MIGRATION_002_RLS } from './migrations/sql.js';
+import { MIGRATION_001_INIT, MIGRATION_002_RLS, MIGRATION_003_WHATSAPP } from './migrations/sql.js';
 
 export function createDbClient(url: string, options?: postgres.Options<any>): postgres.Sql {
   let cleanUrl = url;
@@ -42,5 +42,6 @@ export async function runMigrations(sql: postgres.Sql): Promise<void> {
   await sql.begin(async (tx) => {
     await tx.unsafe(MIGRATION_001_INIT);
     await tx.unsafe(MIGRATION_002_RLS);
+    await tx.unsafe(MIGRATION_003_WHATSAPP);
   });
 }
