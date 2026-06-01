@@ -10,6 +10,8 @@ import { Connection, Client as TemporalClient } from '@temporalio/client';
 import { createRedisClient, TenantConfigCache } from '@voice-agent/redis-client';
 import { createDbClient, TenantScopedDb } from '@voice-agent/db-client';
 import twilio from 'twilio';
+import postgres from 'postgres';
+import { Redis } from 'ioredis';
 
 // Try standard dotenv config first
 dotenv.config();
@@ -39,7 +41,15 @@ const livekitApiKey = process.env.LIVEKIT_API_KEY || 'devkey';
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
 const livekitHost = process.env.LIVEKIT_HOST || process.env.LIVEKIT_URL || 'ws://localhost:7800';
 
-async function bootstrap() {
+export async function createApp({
+  db,
+  redis,
+  temporalClient,
+}: {
+  db: postgres.Sql;
+  redis: Redis;
+  temporalClient?: TemporalClient;
+}) {
   const fastify = Fastify({ logger: true });
 
   await fastify.register(cors, {
@@ -47,25 +57,10 @@ async function bootstrap() {
   });
   await fastify.register(formBody);
 
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-  const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/voice_booking';
-  const temporalAddress = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
-
-  const redis = createRedisClient(redisUrl);
-  const db = createDbClient(dbUrl);
   const scopedDb = new TenantScopedDb(db);
   const configCache = new TenantConfigCache(redis);
-
-  let temporal: TemporalClient | null = null;
-  try {
-    const temporalConnection = await Connection.connect({ address: temporalAddress });
-    temporal = new TemporalClient({
-      connection: temporalConnection,
-    });
-    console.log('Connected to Temporal successfully');
-  } catch (err) {
-    console.warn(`Warning: Could not connect to Temporal at ${temporalAddress}. Workflows will not be dispatchable:`, (err as Error).message);
-  }
+  
+  const temporal = temporalClient || null;
 
   fastify.post('/api/sessions', async (request, reply) => {
     const { tenantId, channel = 'web', callerId } = request.body as {
@@ -180,7 +175,22 @@ async function bootstrap() {
   });
 
   fastify.get('/health', async () => {
-    return { status: 'OK' };
+    try {
+      await db`SELECT 1`;
+      await redis.ping();
+      return {
+        status: 'ok',
+        checks: {
+          db: { status: 'ok' },
+          redis: { status: 'ok' },
+        }
+      };
+    } catch (e) {
+      return {
+        status: 'error',
+        error: (e as Error).message,
+      };
+    }
   });
 
   fastify.post('/api/v1/webhooks/twilio', async (request, reply) => {
@@ -238,11 +248,50 @@ async function bootstrap() {
     return '<Response></Response>';
   });
 
-  console.log(`Starting API Gateway on port ${port}...`);
-  await fastify.listen({ port, host: '0.0.0.0' });
+  fastify.post('/api/v1/webhooks/twilio/whatsapp-voice', async (request, reply) => {
+    const sipUri = process.env.LIVEKIT_SIP_URI || 'sip:voice-agent.sip.livekit.cloud';
+    const twiml = `
+      <Response>
+        <Dial>
+          <Sip>${sipUri};transport=tls</Sip>
+        </Dial>
+      </Response>
+    `;
+    return reply.type('text/xml').send(twiml);
+  });
+
+  return fastify;
 }
 
-bootstrap().catch((err) => {
-  console.error('Fatal error starting API Gateway:', err);
-  process.exit(1);
-});
+async function bootstrap() {
+  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  const dbUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/voice_booking';
+  const temporalAddress = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
+
+  const redis = createRedisClient(redisUrl);
+  const db = createDbClient(dbUrl);
+
+  let temporalClient: TemporalClient | undefined;
+  try {
+    const temporalConnection = await Connection.connect({ address: temporalAddress });
+    temporalClient = new TemporalClient({
+      connection: temporalConnection,
+    });
+    console.log('Connected to Temporal successfully');
+  } catch (err) {
+    console.warn(`Warning: Could not connect to Temporal at ${temporalAddress}. Workflows will not be dispatchable:`, (err as Error).message);
+  }
+
+  const app = await createApp({ db, redis, temporalClient });
+
+  console.log(`Starting API Gateway on port ${port}...`);
+  await app.listen({ port, host: '0.0.0.0' });
+}
+
+// Only run bootstrap if executed directly, not when imported as a module for testing
+if (require.main === module) {
+  bootstrap().catch((err) => {
+    console.error('Fatal error starting API Gateway:', err);
+    process.exit(1);
+  });
+}

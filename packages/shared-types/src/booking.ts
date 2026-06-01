@@ -7,6 +7,7 @@ export interface BookingInput {
     time: string;       // HH:MM (24-hour)
     durationMinutes: number;
     attendeeEmail: string;
+    attendeePhone?: string | null;
     attendeeName: string;
     timezone: string;
     calendarId: string;
@@ -36,6 +37,7 @@ export interface BookingDetails {
   calendarEventId: string;
   calendarId: string;
   attendeeEmail: string;
+  attendeePhone?: string | null;
   attendeeName: string;
   startTime: string;
   endTime: string;

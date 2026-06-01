@@ -260,7 +260,23 @@ export default defineAgent({
         room: ctx.room
     });
 
-    await session.say('Hello, thank you for calling. How can I help you book your appointment today?', {
+    let greeting = 'Hello, thank you for calling. How can I help you book your appointment today?';
+    
+    // Parse room metadata for channel info
+    try {
+      if (ctx.room?.metadata) {
+        const metadata = JSON.parse(ctx.room.metadata);
+        if (metadata.channel === 'whatsapp' || ctx.room?.name?.startsWith('wa-call-')) {
+          greeting = 'Hello, thank you for calling us on WhatsApp. How can I help you book your appointment today?';
+        }
+      } else if (ctx.room?.name?.startsWith('wa-call-')) {
+        greeting = 'Hello, thank you for calling us on WhatsApp. How can I help you book your appointment today?';
+      }
+    } catch (e) {
+      // Ignore metadata parse error
+    }
+
+    await session.say(greeting, {
       allowInterruptions: true
     });
 

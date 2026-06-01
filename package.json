@@ -11,10 +11,30 @@
     "validate": "tsx scripts/validate-e2e.ts"
   },
   "devDependencies": {
+    "@temporalio/client": "^1.17.2",
+    "@temporalio/testing": "^1.17.2",
+    "@temporalio/worker": "^1.17.2",
+    "@temporalio/workflow": "^1.17.2",
+    "@testcontainers/postgresql": "^12.0.1",
+    "@testcontainers/redis": "^12.0.1",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/pg": "^8.20.0",
+    "@types/supertest": "^7.2.0",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.3",
+    "nock": "^14.0.15",
+    "pg": "^8.21.0",
+    "postgres": "^3.4.9",
     "prettier": "^3.2.5",
+    "redis": "^6.0.0",
+    "supertest": "^7.2.2",
+    "testcontainers": "^12.0.1",
     "tsx": "^4.22.3",
     "turbo": "^2.0.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^4.1.7",
+    "xstate": "^4.38.3",
+    "zod": "^3.25.76"
   },
   "engines": {
     "node": ">=20.0.0"

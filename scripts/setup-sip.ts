@@ -69,14 +69,49 @@ async function setupSip() {
       console.log(`Created SIP Dispatch Rule: ${rule.sipDispatchRuleId}`);
     }
 
+    console.log('\n5. Creating WhatsApp Voice SIP Trunk...');
+    let waTrunkId = '';
+    const existingWaTrunks = existingTrunks.filter(t => t.name === 'Twilio WhatsApp Trunk');
+    if (existingWaTrunks.length > 0) {
+      console.log(`Found existing WhatsApp Trunk: ${existingWaTrunks[0].sipTrunkId}`);
+      waTrunkId = existingWaTrunks[0].sipTrunkId;
+    } else {
+      const waTrunk = await sipClient.createSipInboundTrunk(
+        'Twilio WhatsApp Trunk',
+        ['+14155238886'], // Use allowedNumbers to avoid conflict with catch-all trunk
+        { allowedAddresses: ['0.0.0.0/0'] }
+      );
+      console.log(`Created WhatsApp SIP Trunk: ${waTrunk.sipTrunkId}`);
+      waTrunkId = waTrunk.sipTrunkId;
+    }
+
+    console.log('\n6. Creating WhatsApp Voice SIP Dispatch Rule...');
+    const waRules = existingRules.filter(r => r.name === 'Route WhatsApp Voice Calls');
+    if (waRules.length > 0) {
+      console.log(`Found existing WhatsApp Dispatch Rule: ${waRules[0].sipDispatchRuleId}`);
+    } else {
+      const waRule = await sipClient.createSipDispatchRule(
+        {
+          type: 'individual',
+          roomPrefix: 'wa-call-',
+        },
+        {
+          name: 'Route WhatsApp Voice Calls',
+          metadata: '{"tenantId":"default","channel":"whatsapp"}',
+          trunkIds: [waTrunkId]
+        }
+      );
+      console.log(`Created WhatsApp SIP Dispatch Rule: ${waRule.sipDispatchRuleId}`);
+    }
+
     console.log('\n=========================================');
     console.log('SIP INTEGRATION SUCCESSFULLY PROVISIONED');
     console.log('=========================================');
     console.log('\nNext Steps in Twilio Console:');
     console.log('1. Go to Twilio -> Voice -> Manage -> SIP Domains');
-    console.log('2. Create a new SIP Domain (e.g. voice-agent.sip.twilio.com)');
-    console.log(`3. Copy the LiveKit SIP URI for your project from your LiveKit Cloud Dashboard and paste it into the Twilio Origination URI.`);
-    console.log('4. Point your Twilio Phone number to route inbound calls to this SIP domain.');
+    console.log('2. Create a new SIP Domain for your normal calls and point it to the main LiveKit SIP URI.');
+    console.log(`3. Create ANOTHER SIP Domain for WhatsApp calls and point it to the LiveKit SIP URI for the new Twilio WhatsApp Trunk.`);
+    console.log('4. Point your Twilio Phone numbers to route inbound calls to their respective SIP domains.');
     
   } catch (error) {
     console.error('Error setting up SIP:', error);

@@ -9,9 +9,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@temporalio/activity": "^1.9.0",
-    "@temporalio/worker": "^1.9.0",
-    "@temporalio/workflow": "^1.9.0",
+    "@temporalio/activity": "^1.17.2",
+    "@temporalio/worker": "^1.17.2",
+    "@temporalio/workflow": "^1.17.2",
     "@voice-agent/db-client": "workspace:*",
     "@voice-agent/redis-client": "workspace:*",
     "@voice-agent/shared-types": "workspace:*",

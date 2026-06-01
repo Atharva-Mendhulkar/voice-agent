@@ -68,7 +68,8 @@ export function createActivities(context: ActivityContext) {
 
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-  const twilioWhatsappNumber = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+  const rawTwilioWhatsapp = process.env.TWILIO_WHATSAPP_FROM || '+14155238886';
+  const twilioWhatsappNumber = rawTwilioWhatsapp.startsWith('whatsapp:') ? rawTwilioWhatsapp : `whatsapp:${rawTwilioWhatsapp}`;
   const twilioClient = twilioAccountSid && twilioAuthToken ? twilio(twilioAccountSid, twilioAuthToken) : null;
 
   return {

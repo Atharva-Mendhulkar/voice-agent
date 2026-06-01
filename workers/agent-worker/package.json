@@ -15,7 +15,7 @@
     "@livekit/agents-plugin-deepgram": "^1.4.3",
     "@livekit/agents-plugin-openai": "^1.4.3",
     "@livekit/agents-plugin-silero": "^1.4.3",
-    "@temporalio/client": "^1.9.0",
+    "@temporalio/client": "^1.17.2",
     "@voice-agent/db-client": "workspace:*",
     "@voice-agent/eou-detector": "workspace:*",
     "@voice-agent/llm-client": "workspace:*",

@@ -5,7 +5,7 @@ export interface PiiPattern {
 
 export const PII_PATTERNS: PiiPattern[] = [
   // Phone numbers (India + International)
-  { regex: /(\+91|0)?[6-9]\d{9}/g, replacement: '[PHONE]' },
+  { regex: /(\+91[- ]?|0)?[6-9]\d{9}/g, replacement: '[PHONE]' },
   { regex: /\+1?\s*\(?\d{3}\)?\s*[-.]?\d{3}[-.]?\d{4}/g, replacement: '[PHONE]' },
   // Email addresses
   { regex: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, replacement: '[EMAIL]' },
