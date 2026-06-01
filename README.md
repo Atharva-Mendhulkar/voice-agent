@@ -76,7 +76,7 @@ sequenceDiagram
 
 ## Project Status Checklist
 
-### ✅ Completed
+### Completed
 - [x] **Monorepo Setup:** TurboRepo configured with isolated packages (DB, Redis, Types, Observability).
 - [x] **LiveKit Voice Agent:** Node.js agent using `@livekit/agents` framework.
 - [x] **Conversational Pipeline:** Deepgram STT -> OpenAI LLM -> OpenAI TTS.
@@ -84,8 +84,9 @@ sequenceDiagram
 - [x] **Google Calendar Sync:** Full bi-directional checking and booking via Service Accounts.
 - [x] **Latency Tuning:** Silero VAD min_silence_duration reduced to 300ms.
 - [x] **Telephony Integration:** Twilio SIP Inbound Trunk & Dispatch Rules created in LiveKit.
+- [x] **WhatsApp Voice Calling:** Twilio TwiML proxy to LiveKit SIP trunk integrated and verified.
 
-### 🚧 Pending / Next Steps
+### Pending / Next Steps
 - [ ] **Observability (Langfuse):** Inject Langfuse tracing into the LLM completion streams for analytics.
 - [ ] **Post-Call Data Pipeline:** Trigger `PostCallWorkflow` to save full transcripts to PostgreSQL on session end.
 - [ ] **Cartesia TTS Re-enable:** Switch back from OpenAI TTS to Cartesia Sonic once billing is resolved.
@@ -132,6 +133,13 @@ The voice agent supports inbound phone calls via Twilio SIP trunking.
 5. Set the Twilio Origination URI to the LiveKit SIP URI.
 6. Route your Twilio Phone Number to the new SIP domain.
 7. To handle Twilio webhooks (optional), set `TWILIO_AUTH_TOKEN` in your environment variables. The API gateway listens at `/api/v1/webhooks/twilio` for status callbacks.
+
+### WhatsApp Voice Calling Setup
+WhatsApp Business Calling can be integrated by pointing your WhatsApp sender's Voice Webhook URL to the API Gateway. It utilizes the same LiveKit SIP trunking infrastructure.
+1. Ensure your Twilio WhatsApp sender is activated for voice capabilities.
+2. In the Twilio Console, navigate to your WhatsApp sender configuration.
+3. Set the **Voice Webhook URL** to your server: `https://<your-domain>/api/v1/webhooks/twilio/whatsapp-voice`
+4. When a user calls your WhatsApp number, Twilio invokes this webhook which returns TwiML containing a `<Sip>` verb, seamlessly bridging the WhatsApp audio to your LiveKit agent.
 
 ## Building the Workspace
 
