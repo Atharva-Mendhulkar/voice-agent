@@ -21,18 +21,21 @@ export default defineAgent({
     await ctx.connect();
 
     const roomId = ctx.room.name;
-    const metadataStr = ctx.room.metadata;
-    let tenantId = 'd3b07384-d113-4ec3-a558-e04e662e3f62'; // Default to Acme Hotels UUID instead of 'default' string
-    if (metadataStr) {
+    const metadata: Record<string, any> = {};
+    for (const metadataStr of [(ctx as any).job?.metadata, ctx.room.metadata]) {
+      if (!metadataStr) continue;
       try {
-        const metadata = JSON.parse(metadataStr);
-        if (metadata.tenantId) {
-          tenantId = metadata.tenantId;
-        }
+        Object.assign(metadata, JSON.parse(metadataStr));
       } catch (e) {
         // ignore
       }
     }
+    let tenantId =
+      metadata.tenantId ||
+      process.env.DEFAULT_TENANT_ID ||
+      process.env.TWILIO_DEFAULT_TENANT_ID ||
+      'd3b07384-d113-4ec3-a558-e04e662e3f62';
+    let tenantCalendarId = process.env.TARGET_CALENDAR_ID || 'primary';
 
     let redis = (global as any).redis;
     let db = (global as any).db;
@@ -67,6 +70,7 @@ export default defineAgent({
         if (row) {
           const config = typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
           if (config?.systemPrompt) sysPrompt = config.systemPrompt;
+          if (config?.calendarId) tenantCalendarId = config.calendarId;
 
         }
       } catch (e) {
@@ -84,6 +88,7 @@ export default defineAgent({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
           calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
+          timezone: z.string().nullable().optional().describe('IANA timezone, default UTC.'),
         }),
         execute: async (args: any) => {
           if (!temporal) return 'Temporal not connected';
@@ -98,7 +103,8 @@ export default defineAgent({
                   tenantId,
                   date: args.date,
                   time: args.time,
-                  calendarId: args.calendarId || process.env.TARGET_CALENDAR_ID || 'primary',
+                  calendarId: args.calendarId || tenantCalendarId,
+                  timezone: args.timezone || 'UTC',
                 },
               ],
             });
@@ -141,7 +147,7 @@ export default defineAgent({
                     attendeeEmail: args.attendeeEmail || 'no-reply@voicebooking.com',
                     attendeePhone: args.attendeePhone || null,
                     attendeeName: args.attendeeName,
-                    calendarId: args.calendarId || process.env.TARGET_CALENDAR_ID || 'primary',
+                    calendarId: args.calendarId || tenantCalendarId,
                     timezone: args.timezone || 'UTC',
                   },
                 },
@@ -264,12 +270,7 @@ export default defineAgent({
     
     // Parse room metadata for channel info
     try {
-      if (ctx.room?.metadata) {
-        const metadata = JSON.parse(ctx.room.metadata);
-        if (metadata.channel === 'whatsapp' || ctx.room?.name?.startsWith('wa-call-')) {
-          greeting = 'Hello, thank you for calling us on WhatsApp. How can I help you book your appointment today?';
-        }
-      } else if (ctx.room?.name?.startsWith('wa-call-')) {
+      if (metadata.channel === 'whatsapp' || ctx.room?.name?.startsWith('wa-call-')) {
         greeting = 'Hello, thank you for calling us on WhatsApp. How can I help you book your appointment today?';
       }
     } catch (e) {

@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import formBody from '@fastify/formbody';
 import dotenv from 'dotenv';
@@ -40,6 +40,57 @@ const port = parseInt(process.env.PORT || '8000', 10);
 const livekitApiKey = process.env.LIVEKIT_API_KEY || 'devkey';
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
 const livekitHost = process.env.LIVEKIT_HOST || process.env.LIVEKIT_URL || 'ws://localhost:7800';
+
+function getFirstHeaderValue(value: string | string[] | undefined): string | undefined {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw?.split(',')[0]?.trim();
+}
+
+function getPublicUrl(request: FastifyRequest): string {
+  const baseUrl = process.env.TWILIO_WEBHOOK_BASE_URL || process.env.PUBLIC_BASE_URL;
+  if (baseUrl) {
+    return new URL(request.raw.url || '/', baseUrl).toString();
+  }
+
+  const protocol = getFirstHeaderValue(request.headers['x-forwarded-proto'] as string | string[] | undefined) || 'http';
+  const host =
+    getFirstHeaderValue(request.headers['x-forwarded-host'] as string | string[] | undefined) ||
+    request.headers.host ||
+    `localhost:${port}`;
+  return `${protocol}://${host}${request.raw.url}`;
+}
+
+function validateTwilioSignature(request: FastifyRequest, params: Record<string, any>) {
+  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
+  if (!twilioAuthToken) {
+    return { valid: true, skipped: true, url: getPublicUrl(request) };
+  }
+
+  const signature = request.headers['x-twilio-signature'] as string | undefined;
+  if (!signature) {
+    return { valid: false, statusCode: 400, error: 'Missing X-Twilio-Signature header', url: getPublicUrl(request) };
+  }
+
+  const url = getPublicUrl(request);
+  const valid = twilio.validateRequest(twilioAuthToken, signature, url, params);
+  return { valid, statusCode: valid ? undefined : 403, error: valid ? undefined : 'Invalid Twilio Signature', url };
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function withSipTransport(sipUri: string): string {
+  if (/;transport=/i.test(sipUri)) {
+    return sipUri;
+  }
+  return `${sipUri};transport=tls`;
+}
 
 export async function createApp({
   db,
@@ -194,26 +245,15 @@ export async function createApp({
   });
 
   fastify.post('/api/v1/webhooks/twilio', async (request, reply) => {
-    const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-    const signature = request.headers['x-twilio-signature'] as string;
-    
-    const protocol = (request.headers['x-forwarded-proto'] as string) || 'http';
-    const host = request.headers.host || `localhost:${port}`;
-    const url = `${protocol}://${host}${request.raw.url}`;
-
     const params = (request.body || {}) as Record<string, any>;
+    const validation = validateTwilioSignature(request, params);
 
-    if (twilioAuthToken) {
-      if (!signature) {
-        return reply.status(400).send({ error: 'Missing X-Twilio-Signature header' });
-      }
-      
-      const isValid = twilio.validateRequest(twilioAuthToken, signature, url, params);
-      if (!isValid) {
-        fastify.log.warn({ url, signature }, 'Invalid Twilio Signature');
-        return reply.status(403).send({ error: 'Invalid Twilio Signature' });
-      }
-    } else {
+    if (!validation.valid) {
+      fastify.log.warn({ url: validation.url }, validation.error);
+      return reply.status(validation.statusCode || 403).send({ error: validation.error });
+    }
+
+    if (validation.skipped) {
       fastify.log.warn('TWILIO_AUTH_TOKEN is not set. Skipping Twilio signature validation.');
     }
 
@@ -221,13 +261,19 @@ export async function createApp({
 
     // Extract status and update db session if call ended
     const callSid = params.CallSid;
+    const parentCallSid = params.ParentCallSid;
     const callStatus = params.CallStatus; // 'completed', 'failed', etc.
 
-    if (callSid && (callStatus === 'completed' || callStatus === 'failed' || callStatus === 'no-answer')) {
+    const terminalStatuses = new Set(['completed', 'failed', 'no-answer', 'busy', 'canceled']);
+
+    if (callSid && terminalStatuses.has(callStatus)) {
       try {
         const [session] = await db`
           SELECT id FROM sessions
           WHERE metadata->>'callSid' = ${callSid}
+             OR metadata->>'parentCallSid' = ${callSid}
+             OR metadata->>'callSid' = ${parentCallSid || ''}
+             OR metadata->>'parentCallSid' = ${parentCallSid || ''}
           LIMIT 1
         `;
 
@@ -249,11 +295,74 @@ export async function createApp({
   });
 
   fastify.post('/api/v1/webhooks/twilio/whatsapp-voice', async (request, reply) => {
-    const sipUri = process.env.LIVEKIT_SIP_URI || 'sip:voice-agent.sip.livekit.cloud';
+    const params = (request.body || {}) as Record<string, any>;
+    const validation = validateTwilioSignature(request, params);
+
+    if (!validation.valid) {
+      fastify.log.warn({ url: validation.url }, validation.error);
+      return reply.status(validation.statusCode || 403).send({ error: validation.error });
+    }
+
+    if (validation.skipped) {
+      fastify.log.warn('TWILIO_AUTH_TOKEN is not set. Skipping Twilio signature validation.');
+    }
+
+    const sipUri = process.env.LIVEKIT_SIP_URI;
+    if (!sipUri) {
+      fastify.log.error('LIVEKIT_SIP_URI is not set. Cannot route WhatsApp voice call.');
+      return reply.status(500).send({ error: 'LIVEKIT_SIP_URI is required' });
+    }
+
+    const callSid = params.CallSid;
+    const tenantId = process.env.TWILIO_DEFAULT_TENANT_ID || process.env.DEFAULT_TENANT_ID;
+    if (tenantId && callSid) {
+      try {
+        const [existing] = await db`
+          SELECT id FROM sessions
+          WHERE metadata->>'callSid' = ${callSid}
+          LIMIT 1
+        `;
+
+        if (!existing) {
+          await db`
+            INSERT INTO sessions (
+              tenant_id,
+              room_id,
+              channel,
+              caller_id,
+              state,
+              metadata
+            ) VALUES (
+              ${tenantId},
+              ${`twilio-${callSid}`},
+              'whatsapp',
+              ${params.From || null},
+              'CONNECTING',
+              ${{
+                callSid,
+                from: params.From || null,
+                to: params.To || null,
+                direction: params.Direction || null,
+                callType: params.CallType || 'whatsapp',
+              } as any}
+            )
+          `;
+        }
+      } catch (err) {
+        fastify.log.error(err, 'Failed to persist inbound WhatsApp voice session metadata');
+      }
+    } else if (!tenantId) {
+      fastify.log.warn('TWILIO_DEFAULT_TENANT_ID is not set. WhatsApp voice session metadata will not be persisted.');
+    }
+
+    const callbackUrl =
+      process.env.TWILIO_SIP_STATUS_CALLBACK_URL ||
+      new URL('/api/v1/webhooks/twilio', process.env.TWILIO_WEBHOOK_BASE_URL || process.env.PUBLIC_BASE_URL || validation.url).toString();
+
     const twiml = `
       <Response>
         <Dial>
-          <Sip>${sipUri};transport=tls</Sip>
+          <Sip statusCallbackEvent="initiated ringing answered completed" statusCallback="${escapeXml(callbackUrl)}" statusCallbackMethod="POST">${escapeXml(withSipTransport(sipUri))}</Sip>
         </Dial>
       </Response>
     `;

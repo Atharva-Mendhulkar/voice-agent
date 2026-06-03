@@ -44,6 +44,7 @@ export async function BookingWorkflow(params: {
     date,
     time,
     durationMinutes: appointment.durationMinutes,
+    timezone: appointment.timezone,
   });
 
   if (!avail.available) {
@@ -179,13 +180,15 @@ export async function CheckAvailabilityWorkflow(params: {
   date: string;
   time: string;
   calendarId: string;
+  timezone?: string;
 }): Promise<{ available: boolean; proposedSlot?: string }> {
-  const { roomId, tenantId, date, time, calendarId } = params;
+  const { roomId, tenantId, date, time, calendarId, timezone = 'UTC' } = params;
   const avail = await checkCalendarAvailability({
     tenantId,
     calendarId,
     date,
     time,
+    timezone,
   });
 
   await notifyBroker({

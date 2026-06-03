@@ -54,6 +54,7 @@ async function main() {
   await cli.runApp(
     new WorkerOptions({
       agent: path.resolve(__dirname, 'bookingAgent.js'),
+      agentName: process.env.LIVEKIT_AGENT_NAME || 'voice-agent',
     })
   );
 

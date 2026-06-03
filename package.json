@@ -38,5 +38,12 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@livekit/protocol": "^1.45.8",
+    "dotenv": "^16.6.1",
+    "googleapis": "^171.4.0",
+    "livekit-server-sdk": "^2.15.3",
+    "twilio": "^6.0.2"
   }
 }

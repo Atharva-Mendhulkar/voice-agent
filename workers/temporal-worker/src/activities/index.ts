@@ -11,9 +11,29 @@ import twilio from 'twilio';
 export interface ActivityContext {
   db: postgres.Sql;
   redis: Redis;
+  googleCalendar?: GoogleCalendarClient | null;
+  twilioClient?: TwilioMessagesClient | null;
+  requireGoogleCalendarSync?: boolean;
+  requireTwilioWhatsApp?: boolean;
 }
 
-function getGoogleCalendar() {
+type GoogleCalendarClient = {
+  freebusy: {
+    query: (params: any) => Promise<{ data: any }>;
+  };
+  events: {
+    insert: (params: any) => Promise<{ data: any }>;
+    delete: (params: any) => Promise<any>;
+  };
+};
+
+type TwilioMessagesClient = {
+  messages: {
+    create: (params: any) => Promise<any>;
+  };
+};
+
+function getGoogleCalendar(): GoogleCalendarClient | null {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   let key = process.env.GOOGLE_PRIVATE_KEY || '';
 
@@ -54,23 +74,86 @@ function getGoogleCalendar() {
       key,
       scopes: ['https://www.googleapis.com/auth/calendar'],
     });
-    return google.calendar({ version: 'v3', auth });
+    return google.calendar({ version: 'v3', auth }) as unknown as GoogleCalendarClient;
   } catch (err) {
     console.error('Failed to initialize Google Calendar client:', err);
     return null;
   }
 }
 
+function getTimeZoneOffsetMs(timeZone: string, date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(parts.filter((part) => part.type !== 'literal').map((part) => [part.type, part.value]));
+  const localAsUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return localAsUtc - date.getTime();
+}
+
+function zonedDateTimeToDate(date: string, time: string, timeZone = 'UTC'): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  const [hour, minute] = time.split(':').map(Number);
+
+  if (!year || !month || !day || hour === undefined || minute === undefined) {
+    throw ApplicationFailure.nonRetryable(`Invalid appointment date/time: ${date} ${time}`);
+  }
+
+  if (timeZone === 'UTC') {
+    return new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  }
+
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const firstOffset = getTimeZoneOffsetMs(timeZone, utcGuess);
+  let utcDate = new Date(utcGuess.getTime() - firstOffset);
+  const secondOffset = getTimeZoneOffsetMs(timeZone, utcDate);
+
+  if (secondOffset !== firstOffset) {
+    utcDate = new Date(utcGuess.getTime() - secondOffset);
+  }
+
+  return utcDate;
+}
+
 export function createActivities(context: ActivityContext) {
   const scopedDb = new TenantScopedDb(context.db);
-  const broker = new WorkflowResultBroker(context.redis, context.redis.duplicate());
-  const googleCalendar = getGoogleCalendar();
+  const broker = new WorkflowResultBroker(context.redis, context.redis);
+  const googleCalendar: GoogleCalendarClient | null =
+    context.googleCalendar === undefined ? getGoogleCalendar() : context.googleCalendar;
+  const requireGoogleCalendarSync = context.requireGoogleCalendarSync ?? process.env.GOOGLE_CALENDAR_REQUIRED === 'true';
 
   const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
   const rawTwilioWhatsapp = process.env.TWILIO_WHATSAPP_FROM || '+14155238886';
   const twilioWhatsappNumber = rawTwilioWhatsapp.startsWith('whatsapp:') ? rawTwilioWhatsapp : `whatsapp:${rawTwilioWhatsapp}`;
-  const twilioClient = twilioAccountSid && twilioAuthToken ? twilio(twilioAccountSid, twilioAuthToken) : null;
+  const twilioClient =
+    context.twilioClient === undefined
+      ? twilioAccountSid && twilioAuthToken
+        ? twilio(twilioAccountSid, twilioAuthToken)
+        : null
+      : context.twilioClient;
+  const requireTwilioWhatsApp = context.requireTwilioWhatsApp ?? process.env.TWILIO_WHATSAPP_REQUIRED === 'true';
+
+  function ensureGoogleCalendar(): GoogleCalendarClient {
+    if (!googleCalendar) {
+      throw ApplicationFailure.nonRetryable('Google Calendar client is not configured');
+    }
+    return googleCalendar;
+  }
 
   return {
     async checkCalendarAvailability(params: {
@@ -79,9 +162,10 @@ export function createActivities(context: ActivityContext) {
       date: string;
       time: string;
       durationMinutes?: number;
+      timezone?: string;
     }): Promise<{ available: boolean; proposedSlot?: string }> {
-      const { tenantId, calendarId, date, time, durationMinutes = 30 } = params;
-      const startTime = new Date(`${date}T${time}:00Z`);
+      const { tenantId, calendarId, date, time, durationMinutes = 30, timezone = 'UTC' } = params;
+      const startTime = zonedDateTimeToDate(date, time, timezone);
       const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
 
       // Check PostgreSQL first for local collision
@@ -103,23 +187,28 @@ export function createActivities(context: ActivityContext) {
       }
 
       // Query Google Calendar FreeBusy API if configured
-      if (googleCalendar) {
+      if (googleCalendar || requireGoogleCalendarSync) {
         try {
-          const freebusyRes = await googleCalendar.freebusy.query({
+          const freebusyRes = await ensureGoogleCalendar().freebusy.query({
             requestBody: {
               timeMin: startTime.toISOString(),
               timeMax: endTime.toISOString(),
+              timeZone: timezone,
               items: [{ id: calendarId }],
             },
           });
           const busy = freebusyRes.data.calendars?.[calendarId]?.busy || [];
+          const errors = freebusyRes.data.calendars?.[calendarId]?.errors || [];
+          if (errors.length > 0) {
+            throw new Error(`FreeBusy returned calendar errors: ${JSON.stringify(errors)}`);
+          }
           if (busy.length > 0) {
             const proposedTime = new Date(startTime.getTime() + 30 * 60000);
             const proposedString = proposedTime.toISOString().substring(11, 16);
             return { available: false, proposedSlot: proposedString };
           }
         } catch (err) {
-          console.warn('Google Calendar availability check failed, falling back to local DB:', (err as Error).message);
+          throw ApplicationFailure.nonRetryable(`Google Calendar availability check failed: ${(err as Error).message}`);
         }
       }
 
@@ -184,63 +273,83 @@ export function createActivities(context: ActivityContext) {
       } = params;
 
       const confirmationCode = 'CONF-' + crypto.randomBytes(3).toString('hex').toUpperCase();
-      const startTime = new Date(`${date}T${time}:00Z`);
+      const startTime = zonedDateTimeToDate(date, time, timezone);
       const endTime = new Date(startTime.getTime() + durationMinutes * 60000);
 
       // Insert event into Google Calendar if configured
       let calendarEventId: string = crypto.randomUUID();
-      if (googleCalendar) {
+      let insertedGoogleEvent = false;
+      if (googleCalendar || requireGoogleCalendarSync) {
         try {
-          const eventRes = await googleCalendar.events.insert({
+          const eventRes = await ensureGoogleCalendar().events.insert({
             calendarId,
             requestBody: {
               summary: `Booking: ${attendeeName}`,
               description: `Confirmed reservation via SHIELD Voice Coordinator.`,
               start: { dateTime: startTime.toISOString(), timeZone: timezone },
               end: { dateTime: endTime.toISOString(), timeZone: timezone },
+              extendedProperties: {
+                private: {
+                  tenantId,
+                  workflowId: workflowId || '',
+                },
+              },
             },
           });
           if (eventRes.data.id) {
             calendarEventId = eventRes.data.id;
+            insertedGoogleEvent = true;
           }
         } catch (err) {
-          console.warn('Google Calendar events.insert failed, creating local record only:', (err as Error).message);
+          throw ApplicationFailure.nonRetryable(`Google Calendar events.insert failed: ${(err as Error).message}`);
         }
       }
 
-      const [row] = await scopedDb.runTenantScoped(tenantId, async (tx) => {
-        return tx`
-          INSERT INTO bookings (
-            tenant_id,
-            confirmation_code,
-            calendar_event_id,
-            calendar_id,
-            attendee_email,
-            attendee_phone,
-            attendee_name,
-            start_time,
-            end_time,
-            duration_minutes,
-            timezone,
-            status,
-            temporal_workflow_id
-          ) VALUES (
-            ${tenantId},
-            ${confirmationCode},
-            ${calendarEventId},
-            ${calendarId},
-            ${attendeeEmail},
-            ${attendeePhone || null},
-            ${attendeeName},
-            ${startTime},
-            ${endTime},
-            ${durationMinutes},
-            ${timezone},
-            'confirmed',
-            ${workflowId || null}
-          ) RETURNING id, confirmation_code
-        `;
-      });
+      let row: any;
+      try {
+        [row] = await scopedDb.runTenantScoped(tenantId, async (tx) => {
+          return tx`
+            INSERT INTO bookings (
+              tenant_id,
+              confirmation_code,
+              calendar_event_id,
+              calendar_id,
+              attendee_email,
+              attendee_phone,
+              attendee_name,
+              start_time,
+              end_time,
+              duration_minutes,
+              timezone,
+              status,
+              temporal_workflow_id
+            ) VALUES (
+              ${tenantId},
+              ${confirmationCode},
+              ${calendarEventId},
+              ${calendarId},
+              ${attendeeEmail},
+              ${attendeePhone || null},
+              ${attendeeName},
+              ${startTime},
+              ${endTime},
+              ${durationMinutes},
+              ${timezone},
+              'confirmed',
+              ${workflowId || null}
+            ) RETURNING id, confirmation_code
+          `;
+        });
+      } catch (err) {
+        if (insertedGoogleEvent && googleCalendar) {
+          try {
+            await googleCalendar.events.delete({ calendarId, eventId: calendarEventId });
+          } catch (deleteErr) {
+            console.warn('Failed to delete Google Calendar event after DB insert failure:', (deleteErr as Error).message);
+          }
+        }
+        throw err;
+      }
 
       return { id: row.id, confirmationCode: row.confirmationCode };
     },
@@ -440,6 +549,9 @@ export function createActivities(context: ActivityContext) {
     }): Promise<{ success: boolean }> {
       const { to, name, startTime, confirmationCode } = params;
       if (!twilioClient) {
+        if (requireTwilioWhatsApp) {
+          throw ApplicationFailure.nonRetryable('Twilio WhatsApp client is not configured');
+        }
         console.warn('[SIMULATED WHATSAPP] Twilio client not configured. Would send:');
         console.warn(`To: whatsapp:${to}`);
         console.warn(`Body: Hi ${name}, your appointment has been confirmed for ${startTime}. Confirmation Code: ${confirmationCode}. Thank you!`);
@@ -456,6 +568,7 @@ export function createActivities(context: ActivityContext) {
         console.log(`WhatsApp confirmation sent to ${toFormat}`);
       } catch (err) {
         console.error('Failed to send WhatsApp message via Twilio:', err);
+        throw ApplicationFailure.nonRetryable(`Failed to send WhatsApp message via Twilio: ${(err as Error).message}`);
       }
 
       return { success: true };

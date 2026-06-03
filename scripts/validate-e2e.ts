@@ -230,7 +230,8 @@ async function run() {
   assert.strictEqual(decremented, initialSessions);
 
   // WorkflowResultBroker pub/sub broker
-  const broker = new WorkflowResultBroker(redis, redis.duplicate());
+  const brokerSubscriber = redis.duplicate();
+  const broker = new WorkflowResultBroker(redis, brokerSubscriber);
   const pubSubRoom = 'pubsub-room-1';
   let receivedEvent: any = null;
   const unsubscribe = broker.subscribeToResults(pubSubRoom, (ev) => {
@@ -298,6 +299,8 @@ async function run() {
   let gatewayProcess: any = null;
   let worker: any = null;
   let workerPromise: any = null;
+  let nativeConnection: any = null;
+  let temporalConnection: any = null;
 
   try {
     console.log(`Spawning API Gateway subprocess on PORT=${TEST_PORT}...`);
@@ -328,7 +331,7 @@ async function run() {
       const res = await fetch(`http://localhost:${TEST_PORT}/health`);
       if (res.status === 200) {
         const body = await res.json();
-        if (body.status === 'OK') {
+        if (body.status === 'ok') {
           gatewayReady = true;
           break;
         }
@@ -382,24 +385,25 @@ async function run() {
 
   // Start programmatic local Temporal Worker
   console.log('Starting Local Temporal Worker connected to:', TEMPORAL_ADDRESS);
-  const boundActivities = createActivities({ db, redis });
+  const boundActivities = createActivities({ db, redis, googleCalendar: null, twilioClient: null });
   
-  const connection = await NativeConnection.connect({
+  nativeConnection = await NativeConnection.connect({
     address: TEMPORAL_ADDRESS,
   });
 
-  const worker = await Worker.create({
-    connection,
+  worker = await Worker.create({
+    connection: nativeConnection,
     workflowsPath: path.resolve(__dirname, '../workers/temporal-worker/dist/workflows/index.js'),
     activities: boundActivities,
     taskQueue: 'booking-queue',
   });
 
-  const workerPromise = worker.run();
+  workerPromise = worker.run();
   console.log('✔ Temporal Worker started programmatically.');
 
+  temporalConnection = await Connection.connect({ address: TEMPORAL_ADDRESS });
   const temporalClient = new TemporalClient({
-    connection: await Connection.connect({ address: TEMPORAL_ADDRESS }),
+    connection: temporalConnection,
   });
 
   // Test Case A: BookingWorkflow Success Path
@@ -643,6 +647,14 @@ async function run() {
       }
     }
 
+    if (temporalConnection) {
+      await temporalConnection.close();
+    }
+
+    if (nativeConnection) {
+      await nativeConnection.close();
+    }
+
     // 2. Kill Fastify gateway
     if (gatewayProcess) {
       try {
@@ -655,6 +667,7 @@ async function run() {
 
     // 3. Close db & redis clients
     try {
+      await brokerSubscriber.quit();
       await db.end();
       await redis.quit();
       console.log('✔ Databases connections closed.');

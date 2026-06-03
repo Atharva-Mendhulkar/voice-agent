@@ -81,10 +81,10 @@ sequenceDiagram
 - [x] **LiveKit Voice Agent:** Node.js agent using `@livekit/agents` framework.
 - [x] **Conversational Pipeline:** Deepgram STT -> OpenAI LLM -> OpenAI TTS.
 - [x] **Temporal Orchestration:** Saga-based `BookingWorkflow` execution for safety.
-- [x] **Google Calendar Sync:** Full bi-directional checking and booking via Service Accounts.
+- [x] **Google Calendar Sync:** Service Account based free/busy checks, event creation, cancellation/delete sync, and rollback cleanup for failed local writes.
 - [x] **Latency Tuning:** Silero VAD min_silence_duration reduced to 300ms.
-- [x] **Telephony Integration:** Twilio SIP Inbound Trunk & Dispatch Rules created in LiveKit.
-- [x] **WhatsApp Voice Calling:** Twilio TwiML proxy to LiveKit SIP trunk integrated and verified.
+- [x] **Telephony Integration:** Twilio SIP Inbound Trunks and LiveKit dispatch rules with explicit agent dispatch.
+- [x] **WhatsApp Voice Calling:** Twilio Voice webhook validates Twilio signatures, returns TwiML that bridges WhatsApp voice to LiveKit SIP, and reports SIP leg status callbacks.
 
 ### Pending / Next Steps
 - [ ] **Observability (Langfuse):** Inject Langfuse tracing into the LLM completion streams for analytics.
@@ -115,6 +115,10 @@ Configure the following environment variables:
 - `DEEPGRAM_API_KEY`: API key for Deepgram speech-to-text.
 - `CARTESIA_API_KEY`: API key for Cartesia text-to-speech.
 - `LIVEKIT_API_KEY` & `LIVEKIT_API_SECRET`: Credentials for the LiveKit server.
+- `LIVEKIT_AGENT_NAME`: Agent name registered by the worker and used by SIP dispatch rules. Defaults to `voice-agent`.
+- `LIVEKIT_SIP_URI`: LiveKit SIP URI used by the WhatsApp TwiML bridge.
+- `PUBLIC_BASE_URL` or `TWILIO_WEBHOOK_BASE_URL`: Public HTTPS origin for Twilio webhook signature validation and callback URL generation.
+- `DEFAULT_TENANT_ID` / `TWILIO_DEFAULT_TENANT_ID`: Tenant UUID used for inbound SIP and WhatsApp calls.
 
 ### Google Calendar Setup
 To enable Google Calendar syncing, you must configure a Google Service Account:
@@ -123,23 +127,29 @@ To enable Google Calendar syncing, you must configure a Google Service Account:
 3. Export the JSON key.
 4. Set `GOOGLE_SERVICE_ACCOUNT_EMAIL` to the service account email.
 5. Set `GOOGLE_PRIVATE_KEY` to the private key. If using a `.env` file, you can wrap the multiline key in double quotes (the system will automatically parse out the quotes and newlines).
+6. For production, set `GOOGLE_CALENDAR_REQUIRED=true` so Calendar API failures fail the booking workflow instead of using local-only development behavior.
+
+When Google Calendar is configured, booking creation writes the Google event first and stores the returned event ID in PostgreSQL. If the local booking insert fails after event creation, the worker deletes the Google event before rethrowing so the two systems do not drift.
 
 ### Twilio SIP Setup
 The voice agent supports inbound phone calls via Twilio SIP trunking.
-1. Run `npx ts-node scripts/setup-sip.ts` to provision a SIP Inbound Trunk in LiveKit.
-2. The script will output a LiveKit SIP URI.
-3. In Twilio Console, go to Voice > Manage > SIP Domains.
-4. Create a new SIP Domain (e.g., `voice-agent.sip.twilio.com`).
-5. Set the Twilio Origination URI to the LiveKit SIP URI.
-6. Route your Twilio Phone Number to the new SIP domain.
-7. To handle Twilio webhooks (optional), set `TWILIO_AUTH_TOKEN` in your environment variables. The API gateway listens at `/api/v1/webhooks/twilio` for status callbacks.
+1. Set `LIVEKIT_AGENT_NAME`, `TWILIO_DEFAULT_TENANT_ID`, `TWILIO_PSTN_NUMBERS`, and `TWILIO_WHATSAPP_FROM`.
+2. Run `pnpm exec tsx scripts/setup-sip.ts` to provision SIP Inbound Trunks and LiveKit dispatch rules.
+3. The script creates dispatch rules scoped to each trunk and configures LiveKit to dispatch the named agent into new SIP rooms.
+4. In Twilio Console, go to Voice > Manage > SIP Domains.
+5. Create a new SIP Domain (e.g., `voice-agent.sip.twilio.com`).
+6. Set the Twilio Origination URI to the LiveKit SIP URI.
+7. Route your Twilio Phone Number to the new SIP domain.
+8. Set `TWILIO_AUTH_TOKEN` so the API gateway validates Twilio signatures. The gateway listens at `/api/v1/webhooks/twilio` for status callbacks.
 
 ### WhatsApp Voice Calling Setup
 WhatsApp Business Calling can be integrated by pointing your WhatsApp sender's Voice Webhook URL to the API Gateway. It utilizes the same LiveKit SIP trunking infrastructure.
 1. Ensure your Twilio WhatsApp sender is activated for voice capabilities.
 2. In the Twilio Console, navigate to your WhatsApp sender configuration.
-3. Set the **Voice Webhook URL** to your server: `https://<your-domain>/api/v1/webhooks/twilio/whatsapp-voice`
-4. When a user calls your WhatsApp number, Twilio invokes this webhook which returns TwiML containing a `<Sip>` verb, seamlessly bridging the WhatsApp audio to your LiveKit agent.
+3. Set `LIVEKIT_SIP_URI`, `TWILIO_WEBHOOK_BASE_URL` or `PUBLIC_BASE_URL`, `TWILIO_AUTH_TOKEN`, `TWILIO_DEFAULT_TENANT_ID`, and `TWILIO_WHATSAPP_FROM`.
+4. Set the sender's **Voice Webhook URL** to `https://<your-domain>/api/v1/webhooks/twilio/whatsapp-voice`.
+5. When a user calls your WhatsApp number, Twilio invokes this webhook. The API gateway validates the Twilio signature, persists inbound call metadata when a default tenant is configured, and returns TwiML containing a `<Sip>` noun with `initiated ringing answered completed` status callbacks.
+6. For production confirmation messages, set `TWILIO_WHATSAPP_REQUIRED=true` so Twilio send failures fail the workflow instead of being treated as simulated local development sends.
 
 ## Building the Workspace
 
@@ -177,6 +187,20 @@ Verify the entire system end-to-end including database migrations, package audit
 ```bash
 pnpm validate
 ```
+
+### Focused Vendor Integration V&V
+Run focused validation for Twilio/WhatsApp webhook behavior, Google Calendar API boundary behavior, and Temporal booking saga compensation:
+
+```bash
+pnpm --filter @voice-agent/api-gateway build
+pnpm --filter @voice-agent/temporal-worker build
+pnpm --filter @voice-agent/agent-worker build
+pnpm exec tsc --noEmit --pretty false --esModuleInterop --skipLibCheck scripts/setup-sip.ts
+pnpm exec vitest run --config tests/v_and_v/vitest.config.ts tests/v_and_v/unit/vendor-integrations.test.ts
+pnpm exec vitest run --config tests/v_and_v/vitest.config.ts tests/v_and_v/integration/booking-saga.test.ts
+```
+
+The `tests/v_and_v/integration/api-gateway.test.ts` suite uses testcontainers and requires a working local container runtime.
 
 ### Load Testing
 Execute the k6 simulation suite to verify HTTP gateway throughput and cancellation dispatch:
