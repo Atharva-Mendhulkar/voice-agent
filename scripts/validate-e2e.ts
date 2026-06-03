@@ -5,10 +5,11 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { interpret } from 'xstate';
 import { Connection, Client as TemporalClient } from '@temporalio/client';
-import { Worker, NativeConnection } from '@temporalio/worker';
+import { Worker, NativeConnection, DefaultLogger, Runtime } from '@temporalio/worker';
 
 // Load env vars
 dotenv.config();
+Runtime.install({ logger: new DefaultLogger('ERROR') });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,7 +50,9 @@ async function run() {
   await redis.ping();
   console.log('✔ Redis: Connected successfully.');
 
-  const db = createDbClient(DATABASE_URL);
+  const db = createDbClient(DATABASE_URL, {
+    onnotice: process.env.VALIDATE_VERBOSE === 'true' ? console.log : () => {},
+  });
   const [dbPing] = await db`SELECT NOW()`;
   assert.ok(dbPing, 'Database should return current timestamp');
   console.log('✔ PostgreSQL: Connected successfully.');
@@ -97,8 +100,6 @@ async function run() {
       config = EXCLUDED.config;
   `;
   console.log('✔ Seed Data: Test tenants initialized.');
-  const [tenantRow] = await db`SELECT * FROM tenants WHERE id = ${TEST_TENANT_A_ID}`;
-  console.log('DEBUG database tenantRow after insert:', tenantRow);
 
   // Clean up existing bookings/sessions from previous tests to ensure idempotency
   await db`DELETE FROM bookings WHERE tenant_id IN (${TEST_TENANT_A_ID}, ${TEST_TENANT_B_ID})`;
@@ -138,9 +139,9 @@ async function run() {
   console.log('Testing Session State Machine & Redis Sync...');
   const machine = sessionMachine.withConfig({
     actions: {
-      cancelSpeech: () => console.log('Machine: Cancel speech action triggered'),
-      cancelLlm: () => console.log('Machine: Cancel LLM action triggered'),
-      cancelToolExecution: () => console.log('Machine: Cancel tool execution triggered'),
+      cancelSpeech: () => {},
+      cancelLlm: () => {},
+      cancelToolExecution: () => {},
     }
   });
   const service = interpret(machine).start();
@@ -305,19 +306,21 @@ async function run() {
   try {
     console.log(`Spawning API Gateway subprocess on PORT=${TEST_PORT}...`);
     gatewayProcess = spawn('node', ['apps/api-gateway/dist/index.js'], {
-    env: {
-      ...process.env,
-      PORT: TEST_PORT,
-      DATABASE_URL,
-      REDIS_URL,
-      TEMPORAL_ADDRESS,
-    },
-  });
+      env: {
+        ...process.env,
+        API_GATEWAY_LOG_LEVEL: 'silent',
+        PORT: TEST_PORT,
+        DATABASE_URL,
+        REDIS_URL,
+        TEMPORAL_ADDRESS,
+      },
+    });
 
-  gatewayProcess.stdout.on('data', (data) => {
-    // Optional verbose logging
-    console.log(`[Gateway STDOUT]: ${data}`);
-  });
+    gatewayProcess.stdout.on('data', (data) => {
+      if (process.env.VALIDATE_VERBOSE === 'true') {
+        console.log(`[Gateway STDOUT]: ${data}`);
+      }
+    });
 
   gatewayProcess.stderr.on('data', (data) => {
     console.error(`[Gateway STDERR]: ${data}`);
@@ -348,7 +351,6 @@ async function run() {
   const tenantRes = await fetch(`http://localhost:${TEST_PORT}/api/tenants/${TEST_TENANT_A_ID}`);
   assert.strictEqual(tenantRes.status, 200);
   const tenantData = await tenantRes.json();
-  console.log('DEBUG tenantData:', tenantData);
   assert.strictEqual(tenantData.name, 'Acme Hotels');
   assert.strictEqual(tenantData.calendarId, 'acme-cal-1');
   console.log('✔ API Gateway: Tenant endpoint functioning.');
@@ -625,7 +627,6 @@ async function run() {
     WHERE session_id = ${sessionId}
   `;
   assert.strictEqual(dbEvents.length, 1);
-  console.log('DEBUG: dbEvents[0] =', JSON.stringify(dbEvents[0], null, 2));
   assert.strictEqual(dbEvents[0].eventType, 'call_summarized');
   assert.strictEqual(dbEvents[0].payload?.turnCount, 2);
   console.log('✔ PostCall Workflow: Transcripts and summaries persisted and isolated successfully.');

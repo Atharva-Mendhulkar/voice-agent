@@ -16,6 +16,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    setupFiles: [path.resolve(__dirname, './setup.ts')],
     // Unit: no infra needed — fast
     // Integration: boots testcontainers (Postgres, Redis, Temporal) — slow
     // E2E: full pipeline with mocked AI services — slowest

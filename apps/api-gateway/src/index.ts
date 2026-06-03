@@ -101,7 +101,9 @@ export async function createApp({
   redis: Redis;
   temporalClient?: TemporalClient;
 }) {
-  const fastify = Fastify({ logger: true });
+  const fastify = Fastify({
+    logger: process.env.API_GATEWAY_LOG_LEVEL === 'silent' || process.env.NODE_ENV === 'test' ? false : true,
+  });
 
   await fastify.register(cors, {
     origin: '*',
@@ -199,7 +201,6 @@ export async function createApp({
     const config = await configCache.get(id, async (tid) => {
       return scopedDb.runTenantScoped(tid, async (tx) => {
         const [row] = await tx`SELECT * FROM tenants WHERE id = ${tid}`;
-        console.log('API GATEWAY FETCHED DB ROW FOR TENANT:', row);
         if (!row) return null;
         const tenantConfig = typeof row.config === 'string' ? JSON.parse(row.config) : row.config;
         return {
@@ -217,7 +218,6 @@ export async function createApp({
       });
     });
 
-    console.log('API GATEWAY CONFIG FROM CACHE/DB:', config);
     if (!config) {
       return reply.status(404).send({ error: 'Tenant not found' });
     }

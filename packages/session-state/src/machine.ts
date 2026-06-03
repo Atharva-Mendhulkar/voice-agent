@@ -29,6 +29,7 @@ export type SessionMachineEvent =
 export const sessionMachine = createMachine<SessionContext, SessionMachineEvent>(
   {
     id: 'session',
+    predictableActionArguments: true,
     initial: 'CONNECTING',
     context: {
       roomId: '',

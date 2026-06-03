@@ -124,7 +124,6 @@ export async function BookingWorkflow(params: {
 
     return { bookingId, confirmationCode };
   } catch (err) {
-    console.error('Booking Saga failed, executing compensation steps:', err);
     if (bookingId) {
       await deleteBookingRecord({ tenantId, bookingId });
     }

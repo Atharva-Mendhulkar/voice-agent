@@ -6,8 +6,6 @@ import {
   PhoneOff,
   Calendar,
   User,
-  Mail,
-  Clock,
   CheckCircle,
   XCircle,
   RefreshCw,
@@ -113,14 +111,14 @@ export default function Home() {
         setIsUserSpeaking(userSpeaking);
       });
 
-      room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      room.on(RoomEvent.TrackSubscribed, (track) => {
         if (track.kind === Track.Kind.Audio) {
           const audioElement = track.attach();
           document.body.appendChild(audioElement);
         }
       });
 
-      room.on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+      room.on(RoomEvent.TrackUnsubscribed, (track) => {
         track.detach();
       });
 
@@ -180,7 +178,7 @@ export default function Home() {
 
       setCancelSuccess(true);
       setCancelMessage('Cancellation request received. Processing via saga workflow...');
-    } catch (err) {
+    } catch {
       setCancelSuccess(false);
       setCancelMessage('Failed to submit cancellation. Please check details.');
     } finally {
