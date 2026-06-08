@@ -253,7 +253,7 @@ export default defineAgent({
     const session = new voice.AgentSession({
       stt: new deepgram.STT(),
       llm: baseLlm,
-      tts: new openai.TTS({ model: 'tts-1', voice: 'alloy' }),
+      tts: new cartesia.TTS({ voice: process.env.CARTESIA_VOICE_ID || 'db6b0ed5-d5d3-463d-ae85-518a07d3c2b4' }),
       vad,
       turnHandling: {
         preemptiveGeneration: {
