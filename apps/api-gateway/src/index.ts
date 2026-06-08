@@ -327,10 +327,15 @@ export async function createApp({
       fastify.log.warn('TWILIO_AUTH_TOKEN is not set. Skipping Twilio signature validation.');
     }
 
-    const sipUri = process.env.LIVEKIT_SIP_URI;
+    let sipUri = process.env.LIVEKIT_SIP_URI;
     if (!sipUri) {
       fastify.log.error('LIVEKIT_SIP_URI is not set. Cannot route WhatsApp voice call.');
       return reply.status(500).send({ error: 'LIVEKIT_SIP_URI is required' });
+    }
+
+    const dialedNumber = (params.To || '').replace('whatsapp:', '').replace('+', '');
+    if (dialedNumber && sipUri.startsWith('sip:')) {
+      sipUri = sipUri.replace('sip:', `sip:${dialedNumber}@`);
     }
 
     const callSid = params.CallSid;

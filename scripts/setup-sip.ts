@@ -20,10 +20,14 @@ const agentName = process.env.LIVEKIT_AGENT_NAME || 'voice-agent';
 const defaultTenantId = process.env.TWILIO_DEFAULT_TENANT_ID || process.env.DEFAULT_TENANT_ID;
 const pstnNumbers = (process.env.TWILIO_PSTN_NUMBERS || '')
   .split(',')
-  .map((num) => num.trim())
+  .flatMap((num) => {
+    const clean = num.trim().replace('+', '');
+    return [`+${clean}`, clean];
+  })
   .filter(Boolean);
 const rawWhatsAppNumber = process.env.TWILIO_WHATSAPP_FROM || '';
-const whatsAppNumber = rawWhatsAppNumber.replace(/^whatsapp:/, '');
+const cleanWa = rawWhatsAppNumber.replace(/^whatsapp:/, '').replace('+', '');
+const whatsAppNumber = cleanWa ? [`+${cleanWa}`, cleanWa] : [];
 
 if (!livekitUrl || !apiKey || !apiSecret) {
   console.error('LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET must be set in .env');
@@ -124,7 +128,7 @@ async function setupSip() {
     } else {
       const waTrunk = await sipClient.createSipInboundTrunk(
         'Twilio WhatsApp Trunk',
-        [whatsAppNumber],
+        whatsAppNumber,
         {
           allowedAddresses: ['0.0.0.0/0'],
           includeHeaders: SIPHeaderOptions.SIP_X_HEADERS,

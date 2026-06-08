@@ -63,7 +63,7 @@ export default defineAgent({
       (global as any).temporal = temporal;
     }
 
-    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name, along with the date and time. Do not ask for their email address, phone number, or calendar details. Keep your responses short and conversational.';
+    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name, along with the date and time. Do not ask for their email address, phone number, or calendar details. Keep your responses short and conversational. After you have successfully booked the appointment and provided the confirmation to the user, immediately say a short goodbye and then call the `endCall` tool to hang up.';
 
     if (db) {
       try {
@@ -183,6 +183,18 @@ export default defineAgent({
           } catch (e: any) {
             return `Failed: ${e.message}`;
           }
+        },
+      }),
+
+      endCall: llm.tool({
+        description: 'End the phone call. Call this ONLY after confirming a successful booking and explicitly saying goodbye to the user.',
+        parameters: z.object({}),
+        execute: async () => {
+          // Give TTS some time to finish the goodbye message before forcefully disconnecting
+          setTimeout(() => {
+            ctx.room.disconnect();
+          }, 5000);
+          return 'Call ending...';
         },
       }),
     };
