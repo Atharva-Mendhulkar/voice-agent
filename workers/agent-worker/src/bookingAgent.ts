@@ -6,6 +6,7 @@ import {
 } from '@livekit/agents';
 import * as openai from '@livekit/agents-plugin-openai';
 import * as deepgram from '@livekit/agents-plugin-deepgram';
+import * as cartesia from '@livekit/agents-plugin-cartesia';
 
 import * as silero from '@livekit/agents-plugin-silero';
 import { PiiRedactor } from '@voice-agent/pii-redactor';
@@ -62,7 +63,7 @@ export default defineAgent({
       (global as any).temporal = temporal;
     }
 
-    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name and phone number (to send a WhatsApp confirmation), along with the date and time. Do not ask for their email address. Keep your responses short and conversational.';
+    let sysPrompt = 'You are a helpful scheduling assistant. When booking an appointment, you only need to ask the user for their name, along with the date and time. Do not ask for their email address, phone number, or calendar details. Keep your responses short and conversational.';
 
     if (db) {
       try {
@@ -87,7 +88,6 @@ export default defineAgent({
         parameters: z.object({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
-          calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
           timezone: z.string().nullable().optional().describe('IANA timezone, default UTC.'),
         }),
         execute: async (args: any) => {
@@ -103,7 +103,7 @@ export default defineAgent({
                   tenantId,
                   date: args.date,
                   time: args.time,
-                  calendarId: args.calendarId || tenantCalendarId,
+                  calendarId: tenantCalendarId,
                   timezone: args.timezone || 'UTC',
                 },
               ],
@@ -121,11 +121,7 @@ export default defineAgent({
         parameters: z.object({
           date: z.string().describe('Date in YYYY-MM-DD format.'),
           time: z.string().describe('Time in HH:MM (24-hour) format.'),
-          durationMinutes: z.number().default(30).describe('Duration in minutes. Default is 30.'),
-          attendeeEmail: z.string().nullable().optional().describe('Attendee email address. Optional, use a dummy if not provided.'),
-          attendeePhone: z.string().nullable().optional().describe('Attendee phone number in E.164 format. Optional but requested for WhatsApp confirmations.'),
           attendeeName: z.string().describe('Attendee name.'),
-          calendarId: z.string().nullable().optional().describe('The calendar ID. Optional, defaults to primary.'),
           timezone: z.string().nullable().optional().describe('Timezone, default UTC'),
         }),
         execute: async (args: any) => {
@@ -143,11 +139,11 @@ export default defineAgent({
                   appointment: {
                     date: args.date,
                     time: args.time,
-                    durationMinutes: args.durationMinutes || 30,
-                    attendeeEmail: args.attendeeEmail || 'no-reply@voicebooking.com',
-                    attendeePhone: args.attendeePhone || null,
+                    durationMinutes: 30,
+                    attendeeEmail: 'no-reply@voicebooking.com',
+                    attendeePhone: null,
                     attendeeName: args.attendeeName,
-                    calendarId: args.calendarId || tenantCalendarId,
+                    calendarId: tenantCalendarId,
                     timezone: args.timezone || 'UTC',
                   },
                 },
@@ -197,7 +193,7 @@ export default defineAgent({
     });
 
     const vad = await silero.VAD.load({
-      minSilenceDuration: 300, // Aggressive endpointing (default is often 500-700ms)
+      minSilenceDuration: 250, // Extremely aggressive endpointing for snappy response
     });
 
     const baseLlm = new openai.LLM();
@@ -259,6 +255,15 @@ export default defineAgent({
       llm: baseLlm,
       tts: new openai.TTS({ model: 'tts-1', voice: 'alloy' }),
       vad,
+      turnHandling: {
+        preemptiveGeneration: {
+          enabled: true,
+        },
+        interruption: {
+          mode: 'vad',
+          minDuration: 150,
+        },
+      },
     });
 
     await session.start({

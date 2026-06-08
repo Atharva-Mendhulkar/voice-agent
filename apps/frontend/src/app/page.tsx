@@ -57,6 +57,7 @@ export default function Home() {
       const data = await res.json();
       const { token, roomId: responseRoomId, serverUrl } = data;
       setRoomId(responseRoomId);
+      setCancelRoomId(responseRoomId);
 
       // 2. Connect to LiveKit Room
       const room = new Room({
@@ -197,8 +198,8 @@ export default function Home() {
         <div className="flex items-center gap-4">
           {status === ConnectionState.Connected && (
             <div className="badge badge-connected">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-              CONNECTED: {roomId.substring(0, 12)}...
+              <CheckCircle size={16} />
+              CONNECTED: {roomId}
             </div>
           )}
           {status === ConnectionState.Connecting && (

@@ -127,7 +127,8 @@ To enable Google Calendar syncing, you must configure a Google Service Account:
 3. Export the JSON key.
 4. Set `GOOGLE_SERVICE_ACCOUNT_EMAIL` to the service account email.
 5. Set `GOOGLE_PRIVATE_KEY` to the private key. If using a `.env` file, you can wrap the multiline key in double quotes (the system will automatically parse out the quotes and newlines).
-6. For production, set `GOOGLE_CALENDAR_REQUIRED=true` so Calendar API failures fail the booking workflow instead of using local-only development behavior.
+6. Set `TARGET_CALENDAR_ID` to your personal email address (e.g. `your-email@example.com`). **Do NOT use `primary`**, otherwise events will be saved to the Service Account's hidden calendar instead of your personal view.
+7. For production, set `GOOGLE_CALENDAR_REQUIRED=true` so Calendar API failures fail the booking workflow instead of using local-only development behavior.
 
 When Google Calendar is configured, booking creation writes the Google event first and stores the returned event ID in PostgreSQL. If the local booking insert fails after event creation, the worker deletes the Google event before rethrowing so the two systems do not drift.
 
@@ -143,7 +144,7 @@ The voice agent supports inbound phone calls via Twilio SIP trunking.
 8. Set `TWILIO_AUTH_TOKEN` so the API gateway validates Twilio signatures. The gateway listens at `/api/v1/webhooks/twilio` for status callbacks.
 
 ### WhatsApp Voice Calling Setup
-WhatsApp Business Calling can be integrated by pointing your WhatsApp sender's Voice Webhook URL to the API Gateway. It utilizes the same LiveKit SIP trunking infrastructure.
+WhatsApp Business Calling for Programmable Voice (launched as General Availability on July 15, 2025) can be integrated by pointing your WhatsApp sender's Voice Webhook URL to the API Gateway. It utilizes the same LiveKit SIP trunking infrastructure.
 1. Ensure your Twilio WhatsApp sender is activated for voice capabilities.
 2. In the Twilio Console, navigate to your WhatsApp sender configuration.
 3. Set `LIVEKIT_SIP_URI`, `TWILIO_WEBHOOK_BASE_URL` or `PUBLIC_BASE_URL`, `TWILIO_AUTH_TOKEN`, `TWILIO_DEFAULT_TENANT_ID`, and `TWILIO_WHATSAPP_FROM`.
