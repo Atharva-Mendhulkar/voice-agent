@@ -85,6 +85,8 @@ sequenceDiagram
 - [x] **Latency Tuning:** Silero VAD min_silence_duration reduced to 300ms.
 - [x] **Telephony Integration:** Twilio SIP Inbound Trunks and LiveKit dispatch rules with explicit agent dispatch.
 - [x] **WhatsApp Voice Calling:** Twilio Voice webhook validates Twilio signatures, returns TwiML that bridges WhatsApp voice to LiveKit SIP, and reports SIP leg status callbacks.
+- [x] **Call Termination:** Agent autonomously hangs up the call using an `endCall` tool upon successful booking confirmation.
+- [x] **SIP Parsing Fix:** Overcame Twilio's E.164 parsing bug by ensuring LiveKit Trunk numbers are registered using pure numeric values (e.g. `918591436357`), bypassing `13224` invalid phone number errors.
 
 ### Pending / Next Steps
 - [ ] **Observability (Langfuse):** Inject Langfuse tracing into the LLM completion streams for analytics.
