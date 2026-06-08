@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, AgentDispatchClient } from 'livekit-server-sdk';
 import { Connection, Client as TemporalClient } from '@temporalio/client';
 import { createRedisClient, TenantConfigCache } from '@voice-agent/redis-client';
 import { createDbClient, TenantScopedDb } from '@voice-agent/db-client';
@@ -40,6 +40,12 @@ const port = parseInt(process.env.PORT || '8000', 10);
 const livekitApiKey = process.env.LIVEKIT_API_KEY || 'devkey';
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET || 'secret';
 const livekitHost = process.env.LIVEKIT_HOST || process.env.LIVEKIT_URL || 'ws://localhost:7800';
+
+// Convert wss:// to https:// for the REST API clients
+const livekitHttpHost = livekitHost.replace('wss://', 'https://').replace('ws://', 'http://');
+const roomService = new RoomServiceClient(livekitHttpHost, livekitApiKey, livekitApiSecret);
+const agentDispatch = new AgentDispatchClient(livekitHttpHost, livekitApiKey, livekitApiSecret);
+const agentName = process.env.LIVEKIT_AGENT_NAME || 'voice-agent';
 
 function getFirstHeaderValue(value: string | string[] | undefined): string | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -139,6 +145,20 @@ export async function createApp({
       canSubscribe: true,
     });
     const token = await at.toJwt();
+
+    // Create the room explicitly on LiveKit server with metadata
+    const roomMetadata = JSON.stringify({ tenantId, channel, callerId: callerId || null });
+    await roomService.createRoom({
+      name: roomId,
+      emptyTimeout: 300,     // 5 min grace if no one joins
+      departureTimeout: 30,  // 30s after last participant leaves
+      metadata: roomMetadata,
+    });
+
+    // Explicitly dispatch the agent to this room
+    await agentDispatch.createDispatch(roomId, agentName, {
+      metadata: roomMetadata,
+    });
 
     await scopedDb.runTenantScoped(tenantId, async (tx) => {
       await tx`

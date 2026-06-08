@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.16.1",
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "ulimit -n 10240 && turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "type-check": "turbo run type-check",
