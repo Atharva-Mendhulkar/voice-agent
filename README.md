@@ -144,8 +144,12 @@ The voice agent supports inbound phone calls via Twilio SIP trunking.
 6. Set the Twilio Origination URI to the LiveKit SIP URI.
 7. Route your Twilio Phone Number to the new SIP domain.
 8. Set `TWILIO_AUTH_TOKEN` so the API gateway validates Twilio signatures. The gateway listens at `/api/v1/webhooks/twilio` for status callbacks.
-9. To test your Twilio configuration and trigger an automated phone call to your personal device, run `pnpm exec tsx scripts/test-call.ts`.
 
+#### Testing the Phone Call
+To test your Twilio configuration and trigger an automated outbound phone call to your personal device, run:
+```bash
+pnpm exec tsx scripts/test-call.ts
+```
 ### WhatsApp Voice Calling Setup
 WhatsApp Business Calling for Programmable Voice (launched as General Availability on July 15, 2025) can be integrated by pointing your WhatsApp sender's Voice Webhook URL to the API Gateway. It utilizes the same LiveKit SIP trunking infrastructure.
 1. Ensure your Twilio WhatsApp sender is activated for voice capabilities.
